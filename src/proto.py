@@ -84,10 +84,10 @@ class ModbusRtuCh(modbusRtuChannel):
         except Exception as e:
             logging.warning('采集(equipType={},equipId={},modbusaddr={})异常.'.format(equipType, equipID, slaveId))
             #测试
-            if equipType == 1:
-                return dict(modbusaddr=slaveId, humidity = 21.4, temperature = 43.8) 
-            elif equipType == 2:
-                return dict(modbusaddr=slaveId, switchStatus1 = 1, switchStatus2 = 1) 
+            # if equipType == 1:
+            #     return dict(modbusaddr=slaveId, humidity = 21.4, temperature = 43.8) 
+            # elif equipType == 2:
+            #     return dict(modbusaddr=slaveId, switchStatus1 = 1, switchStatus2 = 1) 
         return {}
 
     def setSlaveData(self, equipType, equipID, slaveId, cmd, addr, value):
