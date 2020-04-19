@@ -22,7 +22,7 @@ class Config:
     }
     def __init__(self, fname):
         self.fullname = os.path.join(os.getcwd(), fname)
-        conf = configparser.SafeConfigParser(defaults=self.default_data, default_section='DATABASE')
+        conf = configparser.SafeConfigParser(defaults=self.default_data, default_section='COMCFG')
         try:
             with open(self.fullname, 'r') as fp:
                 conf.read_file(fp)
@@ -119,7 +119,7 @@ class MainWindow(QtWidgets.QDialog):
         self.startCl()
 
         self.timer = QtCore.QTimer()
-        self.timer.setInterval(20*1000)
+        self.timer.setInterval(5*1000)
         self.timer.start()
         self.timer.timeout.connect(self.monitorWorkers)
 

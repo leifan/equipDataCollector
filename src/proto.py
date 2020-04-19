@@ -39,8 +39,10 @@ class modbusRtuChannel(metaclass=MetaRegCls):
             self.master = tkRtu.RtuMaster(se)
             logging.disable(logging.NOTSET)
             self.master.set_timeout(rtutimeout)
+            self.msg_err = ""
         except Exception as e:
             self.master = None
+            self.msg_err = e
             logging.warning('%s Open failed, %s'%(portName, e))
 
     def getSlaveData(self, equipType, equipID, slaveId, cmd, addr, num):
@@ -60,7 +62,7 @@ class ModbusRtuCh(modbusRtuChannel):
     protoType = 'rtu_modbus'
     baudrate, parity = 9600, 'N'
 
-    def getSlaveData(self, equipType, equipID, slaveId, cmd, addr, num):
+    def getSlaveData(self, equipType, equipId, slaveId, cmd, addr, num):
         try:
             r = None
             rd = {}
@@ -76,21 +78,18 @@ class ModbusRtuCh(modbusRtuChannel):
                 # switchStatus1 switchStatus2
                 # r = (1, 1, 0, 0, 0, 0, 0, 0)
                 rd = dict(modbusaddr=slaveId, switchStatus1 = r[0], switchStatus2 = r[1])
-            logging.debug('采集(equipType={},equipId={})原始数据:{}'.format(equipType, equipID, r))
-            logging.debug('采集(equipType={},equipId={})解析数据:{}'.format(equipType, equipID, rd))    
-            # print('采集原始数据:', r) 
-            # print('采集解析数据:', rd)
+            logging.debug('采集(equipType={},equipId={})原始数据:{}'.format(equipType, equipId, r))
             return rd
         except Exception as e:
-            logging.warning('采集(equipType={},equipId={},modbusaddr={})异常.'.format(equipType, equipID, slaveId))
-            #测试
+            logging.warning('采集(equipType={},equipId={},modbusaddr={})异常.'.format(equipType, equipId, slaveId))
+            # 测试赋值
             # if equipType == 1:
             #     return dict(modbusaddr=slaveId, humidity = 21.4, temperature = 43.8) 
             # elif equipType == 2:
             #     return dict(modbusaddr=slaveId, switchStatus1 = 1, switchStatus2 = 1) 
         return {}
 
-    def setSlaveData(self, equipType, equipID, slaveId, cmd, addr, value):
+    def setSlaveData(self, equipType, equipId, slaveId, cmd, addr, value):
         try:
             if equipType == 2: # 继电器
                 # execute(slave,功能代码,开始地址,quantity_of_x=0,output_value=0,data_format="",指定长度=-1)
@@ -100,8 +99,7 @@ class ModbusRtuCh(modbusRtuChannel):
                 # 1号开 10 05 00 01 01 00 9e db
                 # 1号关 10 05 00 01 00 00 9f 4b
                 # 同时控制 10 0F 00 00 00 02 01 03 5e 56
-                logging.info('设置(equipType={},equipId={},addr={},value={})结果:{}'.format(equipType, equipID, addr, value, r))
             return r
         except Exception as e:
-            logging.info('设置(equipType={},equipId={},addr={},value={})异常.'.format(equipType, equipID, addr, value,))
+            logging.warning('设置(equipType={},equipId={},addr={},value={})异常.'.format(equipType, equipId, addr, value))
         return None
