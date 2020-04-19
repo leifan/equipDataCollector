@@ -76,13 +76,18 @@ class ModbusRtuCh(modbusRtuChannel):
                 # switchStatus1 switchStatus2
                 # r = (1, 1, 0, 0, 0, 0, 0, 0)
                 rd = dict(modbusaddr=slaveId, switchStatus1 = r[0], switchStatus2 = r[1])
-            logging.info('采集(equipType={},equipId={})原始数据:{}'.format(equipType, equipID, r))
-            logging.info('采集(equipType={},equipId={})解析数据:{}'.format(equipType, equipID, rd))    
+            logging.debug('采集(equipType={},equipId={})原始数据:{}'.format(equipType, equipID, r))
+            logging.debug('采集(equipType={},equipId={})解析数据:{}'.format(equipType, equipID, rd))    
             # print('采集原始数据:', r) 
             # print('采集解析数据:', rd)
             return rd
         except Exception as e:
-            logging.info('采集(equipType={},equipId={})异常.'.format(equipType, equipID))
+            logging.warning('采集(equipType={},equipId={},modbusaddr={})异常.'.format(equipType, equipID, slaveId))
+            #测试
+            if equipType == 1:
+                return dict(modbusaddr=slaveId, humidity = 21.4, temperature = 43.8) 
+            elif equipType == 2:
+                return dict(modbusaddr=slaveId, switchStatus1 = 1, switchStatus2 = 1) 
         return {}
 
     def setSlaveData(self, equipType, equipID, slaveId, cmd, addr, value):

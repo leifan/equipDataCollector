@@ -44,13 +44,23 @@ class Collector(Thread):
             while not self.qSetData.empty():
                 time.sleep(self.space)
                 setDat = self.qSetData.get() # {'status2': 0, 'equipId': 3, 'equipType': 2, 'status1': 0}
-                status1 = 0 if setDat['status1'] == 0 else 0xFF
-                status2 = 0 if setDat['status2'] == 0 else 0xFF
-                status = [status1,status2]
-                print(status)
-                for equipType,equipId,*a in self.addrs:
-                    if setDat['equipType'] == 2 and setDat['equipId'] == equipId:
-                        ret = self.ch.setSlaveData(equipType, equipId, a[0], 15, 0, status)# equipType, equipId, comaddr, 功能代码,开始地址, 写入值
+                # 判断 设置寄存器 拼接modbus命令
+                # 写单线圈 5 status1 寄存器地址 0， status2 寄存器地址 1
+                status = []
+                if 'status1' in setDat.keys():
+                    status1 = 0 if setDat['status1'] == 0 else 0xFF
+                    status.append(status1)
+
+                if 'status2' in setDat.keys():
+                    status2 = 0 if setDat['status2'] == 0 else 0xFF
+                    status.append(status2)
+                
+                if len(status):
+                    for equipType,equipId,*a in self.addrs:
+                        if setDat['equipType'] == 2 and setDat['equipId'] == equipId:
+                            # equipType, equipId, comaddr, 功能代码,开始地址, 写入值
+                            regStartAddr = 0 if 'status1' in setDat.keys() else 1 
+                            ret = self.ch.setSlaveData(equipType, equipId, a[0], 15, regStartAddr, status)
 
             # 采集
             for equipType,equipId,*a in self.addrs: # equipType, equipId, comaddr, 功能代码,开始地址,读寄存器个数
@@ -94,7 +104,7 @@ class Writer(Thread):
                 json_d = json_str.encode('utf-8')
                 dat = struct.pack('<H', 0xAAFF) + len(json_d).to_bytes(4, byteorder='big') + json_d
                 self.handle_socket.sendall(dat)      #数据上报服务器
-                logging.info('主动上报 {}'.format(dat))
+                logging.debug('主动上报 {}'.format(dat))
             time.sleep(3)
         logging.info('Writer 结束')
 
@@ -134,7 +144,7 @@ class Recevie(Thread):
                     json_str = d.decode('utf-8')
                     dict_dat = json.loads(json_str)
                     self.qData.put(dict_dat)
-                    print('接收->',dict_dat)
+                    logging.info('接收服务器指令：{}'.format(dict_dat))
                     msgFlag = msgLen = 0
 
         logging.info('Recevie 结束')
@@ -148,10 +158,10 @@ def getBasic(engine, Base):
         comStr = engine[2]
         equipSampCfg = [ # equipType, equipId, comaddr, 功能代码,开始地址,读寄存器个数)
                          # 采集
-                           (0x1, 1, 1, 3, 0, 2), 
-                        #  (0x1, 2, 2, 3, 0, 2), 
+                           (0x1, 1, 0x01, 3, 0, 2), 
+                           (0x1, 2, 0x02, 3, 0, 2), 
                            (0x2, 3, 0x10, 1, 0, 8), # 读开关状态
-                        #  (0x2, 4, 0x11, 1, 0, 8), 
+                           (0x2, 4, 0x11, 1, 0, 8), 
                        ]
         channels = [  # ( 串口， 协议类型， 查询周期， [(equipType,equipId,comaddr,0), ], 超时时间，延迟)
                         (comStr, 'rtu_modbus', 2500, equipSampCfg, 1000, 200),
@@ -165,7 +175,7 @@ def getBasic(engine, Base):
             #HANDLE_SOCKET.settimeout(5)
             logging.info('{}:{}创建TCP连接成功！'.format(engine[0], int(engine[1])))
         except Exception as e:
-            logging.debug(str(e), exc_info=True)
+            logging.warning(str(e), exc_info=True)
 
         return channels, HANDLE_SOCKET
     except Exception as e:
@@ -231,4 +241,5 @@ class HtDac():
         '''
         实现配置变化时动态修改参数
         '''
+
         return True

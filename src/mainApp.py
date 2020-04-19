@@ -15,7 +15,7 @@ import app_rc
 
 class Config:
     default_data = {
-        'host': '60.205.223.184', # '60.205.223.184'
+        'host': '60.205.223.184',
         'port':'9001', 
         'com':'COM3', 
         'timeout':'1'
