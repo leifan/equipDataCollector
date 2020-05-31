@@ -149,16 +149,19 @@ class Writer(Thread):
         '''
         while not self.finished.is_set():
             try:
+                time.sleep(1)
+                
                 if self.runSecondTime % 600 == 0: #10分钟
                     self.GetSessionId()
+                    time.sleep(1)
 
                 if self.runSecondTime % 3 == 0: # 3s
                     self.SendDatatoWeb()
+                    time.sleep(1)
                 
-                if self.runSecondTime % 300 == 0: #5分钟
+                if self.runSecondTime % 302 == 0: #5分钟
                     pass
 
-                time.sleep(1)
                 self.runSecondTime += 1
             except Exception as e:
                 logging.warning(str(e), exc_info=True)
