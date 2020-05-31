@@ -22,7 +22,7 @@ class Config:
     }
     def __init__(self, fname):
         self.fullname = os.path.join(os.getcwd(), fname)
-        conf = configparser.SafeConfigParser(defaults=self.default_data, default_section='COMCFG')
+        conf = configparser.ConfigParser(defaults=self.default_data, default_section='COMCFG')
         try:
             with open(self.fullname, 'r') as fp:
                 conf.read_file(fp)
@@ -62,6 +62,7 @@ def excepthook(etype, value, tb):
 
         logging.error(tbinfo)
     except Exception as e:
+        logging.warning(str(e), exc_info=True)
         pass
 
 class GuiLogger(QtWidgets.QPlainTextEdit):

@@ -15,6 +15,7 @@ from proto import MetaRegCls
 import socket
 import json
 import struct
+import requests
 
 # 采集线程N
 # 需要处理接口协议，多客户端轮询，单客户查询
@@ -83,28 +84,85 @@ class Collector(Thread):
 
 # 设备数据主动上报 线程
 class Writer(Thread):
-    def __init__(self, qData, handle_socket):
+    def __init__(self, qData, web_cfg_info):
         super().__init__(daemon=True)
         self.finished = Event()
         self.qData = qData
+        self.web_cfg_info = web_cfg_info
         self.interval = 2.0
+        self.concentration = 0
+        self.runSecondTime = 0
 
     def stop(self):
         self.finished.set()
+    
+    def GetSessionId(self):
+        try:
+            url = self.web_cfg_info['web_login_url']
+            params = {'userName': self.web_cfg_info['userName'], 
+                      'password': self.web_cfg_info['password'],
+                    }
+            r = requests.get(url=url, params=params)
+            d = r.json()
+            sessionId = d['data']['sessionId']
+            self.web_cfg_info['sessionId'] = sessionId
+            logging.info('获取sessionId={}'.format(sessionId))
+        except Exception as e:
+            logging.warning(str(e), exc_info=True)
+
+        return None
+    
+    def SendDatatoWeb(self):
+        if self.qData.empty() or 'sessionId' not in self.web_cfg_info.keys():
+            return None
+
+        concentration = None
+        while not self.qData.empty():
+            concentration = self.qData.get()
+
+        # 上报条件5分钟或者数据变化
+        if concentration['concentration'] == self.concentration or self.runSecondTime % 300 != 0:
+            return None
+        self.concentration = concentration['concentration']
+
+        try:
+            url = self.web_cfg_info['web_post_toxic_url']
+            headers = {
+                        'Content-Type':'application/x-www-form-urlencoded; charset=UTF-8',
+                        'Cookie':'sessionId={}'.format(self.web_cfg_info['sessionId'],
+                        )
+                    }
+            data = [{"equipCode":"005","appId":"00001","value":self.concentration}]
+            data = json.dumps(data)
+            params = {'data': data}
+            r = requests.post(url=url, headers=headers, params=params)
+            logging.info('上报有毒气体{} 结果:{} {}'.format(params, r, r.content.decode('utf-8')))
+        except Exception as e:
+            logging.warning(str(e), exc_info=True)
+        return None
 
     def run(self):
+        '''
+        任务1：每10分钟获取sessionId
+        任务2：每5分钟获取有毒气体设备列表
+        任务3：每5分钟上报有毒气体数据 上报条件5分钟或者数据变化
+        '''
         while not self.finished.is_set():
-            pass
-            # 主动上报数据
-            # if self.handle_socket:
-            #     if not self.qData.empty():
-            #         json_str = json.dumps(self.qData.get())
-            #         json_d = json_str.encode('utf-8')
-            #         dat = struct.pack('<H', 0xAAFF) + len(json_d).to_bytes(4, byteorder='big') + json_d
-            #         self.handle_socket.sendall(dat)      #数据上报服务器
-            #         logging.info('主动上报 {},{},{}'.format(self.qData.qsize(),time.asctime(),dat))
-            #     else:
-            #         time.sleep(2)
+            try:
+                if self.runSecondTime % 600 == 0: #10分钟
+                    self.GetSessionId()
+
+                if self.runSecondTime % 3 == 0: # 3s
+                    self.SendDatatoWeb()
+                
+                if self.runSecondTime % 300 == 0: #5分钟
+                    pass
+
+                time.sleep(1)
+                self.runSecondTime += 1
+            except Exception as e:
+                logging.warning(str(e), exc_info=True)
+        
         logging.info('Writer 结束')
 
 # 获取服务器数据 线程
@@ -119,8 +177,6 @@ class Recevie(Thread):
         self.finished.set()
 
     def run(self):
-        msgFlag = 0
-        msgLen = 0
         while not self.finished.is_set():
             pass
 
@@ -183,7 +239,7 @@ class EquipCfg:
     
     def get_web_cfg(self):
         web_cfg_info = {'web_login_url':None,
-                        'user_name':None,
+                        'userName':None,
                         'password':None,
                         'web_get_toxic_equip_url':None,
                         'recordPerPage':None,
@@ -194,6 +250,7 @@ class EquipCfg:
                 ret = self.get_option('web_cfg', k) 
                 if ret:
                     web_cfg_info[k] = ret
+            print(web_cfg_info)
         except Exception as e:
             logging.warning(str(e), exc_info=True)
         return web_cfg_info       
@@ -245,9 +302,8 @@ class HtDac():
        
         # web所有线程
         if web_cfg_info:
-            pass
-            # writer = Writer(qData, self.handle_socket)
-            # threads.append(writer)
+            writer = Writer(qData, web_cfg_info)
+            threads.append(writer)
 
             # recevie = Recevie(qSetData, self.handle_socket)
             # threads.append(recevie)
