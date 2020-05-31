@@ -1,7 +1,7 @@
 # encoding:utf-8
 import time
 from datetime import datetime, timezone
-import os, sqlite3
+import os
 import sys, configparser
 import logging
 from logging.handlers import RotatingFileHandler
@@ -10,14 +10,11 @@ from queue import Queue, Empty
 from collections import deque, defaultdict
 from itertools import groupby
 
-
 from proto import MetaRegCls
 
 import socket
 import json
 import struct
-
-HANDLE_SOCKET = None
 
 # 采集线程N
 # 需要处理接口协议，多客户端轮询，单客户查询
@@ -64,7 +61,7 @@ class Collector(Thread):
                             logging.info('设置(equipType={},equipId={},addr={},value={})结果:{}'.format(equipType, equipId, a[0], status, ret))
 
             # 采集
-            for equipType,equipId,*a in self.addrs: # equipType, equipId, comaddr, 功能代码,开始地址,读寄存器个数
+            for equipType,equipId,*a in self.addrs: # equipType, equipId, comaddr, 功能代码, 开始地址, 读寄存器个数
                 time.sleep(self.space)
                 ret = self.ch.getSlaveData(equipType,equipId,*a)
                 comStatus = 1
@@ -91,33 +88,32 @@ class Writer(Thread):
         self.finished = Event()
         self.qData = qData
         self.interval = 2.0
-        self.handle_socket = handle_socket
 
     def stop(self):
         self.finished.set()
 
     def run(self):
         while not self.finished.is_set():
+            pass
             # 主动上报数据
-            if self.handle_socket:
-                if not self.qData.empty():
-                    json_str = json.dumps(self.qData.get())
-                    json_d = json_str.encode('utf-8')
-                    dat = struct.pack('<H', 0xAAFF) + len(json_d).to_bytes(4, byteorder='big') + json_d
-                    self.handle_socket.sendall(dat)      #数据上报服务器
-                    logging.info('主动上报 {},{},{}'.format(self.qData.qsize(),time.asctime(),dat))
-                else:
-                    time.sleep(2)
+            # if self.handle_socket:
+            #     if not self.qData.empty():
+            #         json_str = json.dumps(self.qData.get())
+            #         json_d = json_str.encode('utf-8')
+            #         dat = struct.pack('<H', 0xAAFF) + len(json_d).to_bytes(4, byteorder='big') + json_d
+            #         self.handle_socket.sendall(dat)      #数据上报服务器
+            #         logging.info('主动上报 {},{},{}'.format(self.qData.qsize(),time.asctime(),dat))
+            #     else:
+            #         time.sleep(2)
         logging.info('Writer 结束')
 
 # 获取服务器数据 线程
 class Recevie(Thread):
-    def __init__(self, qData, handle_socket):
+    def __init__(self, qData):
         super().__init__(daemon=True)
         self.finished = Event()
         self.qData = qData
         self.interval = 2.0
-        self.handle_socket = handle_socket
 
     def stop(self):
         self.finished.set()
@@ -126,31 +122,11 @@ class Recevie(Thread):
         msgFlag = 0
         msgLen = 0
         while not self.finished.is_set():
-            if self.handle_socket:
-                if msgFlag == 0: # 帧头校验
-                    d = self.handle_socket.recv(2) 
-                    if len(d) == 2 :
-                        if not (d[0] == 0xFF and d[1] == 0xAA):
-                            logging.warning('帧头错误 {} {}'.format(d[0], d[1]))
-                        else:
-                            msgFlag = 1
-                elif msgFlag == 1: # 数据长度
-                    d = self.handle_socket.recv(4) 
-                    if len(d) == 4:
-                        msgLen = struct.unpack('>i',d)[0]
-                        msgFlag = 2
-                    else:
-                        msgFlag = msgLen = 0
-                elif msgFlag == 2: # json体
-                    d = self.handle_socket.recv(msgLen) 
-                    json_str = d.decode('utf-8')
-                    dict_dat = json.loads(json_str)
-                    self.qData.put(dict_dat)
-                    logging.info('接收服务器指令：{}'.format(dict_dat))
-                    msgFlag = msgLen = 0
+            pass
 
         logging.info('Recevie 结束')
 
+# 解析配置文件
 class EquipCfg:
     def __init__(self, fname):
         self.fullname = os.path.join(os.getcwd(), fname)
@@ -169,6 +145,10 @@ class EquipCfg:
         except:
             pass
         return ret
+
+    def get_all_info(self):
+
+        return self.get_channel(), self.get_web_cfg()
 
     def get_channel(self):
         channels = []
@@ -199,42 +179,31 @@ class EquipCfg:
                         equipinfo.append(ti)
         except Exception as e:
             logging.warning(str(e), exc_info=True)
-        return equipinfo       
-
+        return equipinfo
+    
+    def get_web_cfg(self):
+        web_cfg_info = {'web_login_url':None,
+                        'user_name':None,
+                        'password':None,
+                        'web_get_toxic_equip_url':None,
+                        'recordPerPage':None,
+                        'web_post_toxic_url':None,
+                       }
+        try:
+            for k in web_cfg_info.keys():
+                ret = self.get_option('web_cfg', k) 
+                if ret:
+                    web_cfg_info[k] = ret
+        except Exception as e:
+            logging.warning(str(e), exc_info=True)
+        return web_cfg_info       
 
 # 获取设备基本信息
 def getBasic(engine, Base):
     try:
         cfg = EquipCfg('equipCfg.ini')
-
-        # 通道
-        channels = cfg.get_channel()
-
-        # 测试赋值
-        if len(channels) == 0:
-            comStr = engine[2]
-            equipSampCfg = [ # equipType, equipId, comaddr, 功能代码,开始地址,读寄存器个数)
-                            # 采集
-                            (0x1, 1, 0x01, 3, 0, 2), 
-                            (0x1, 2, 0x02, 3, 0, 2), 
-                            (0x2, 3, 0x10, 1, 0, 8), # 读开关状态
-                            (0x2, 4, 0x11, 1, 0, 8), 
-                        ]
-            channels = [  # ( 串口， 协议类型， 查询周期， [(equipType,equipId,comaddr,0), ], 超时时间，延迟)
-                            (comStr, 'rtu_modbus', 2500, equipSampCfg, 1000, 200),
-                    ] 
-
-        # TCP通信创建
-        try:
-            global HANDLE_SOCKET
-            HANDLE_SOCKET = socket.socket(socket.AF_INET,socket.SOCK_STREAM)     # 定义socket类型，网络通信，TCP
-            HANDLE_SOCKET.connect((engine[0], int(engine[1])))                   # 建立ip port 连接
-            #HANDLE_SOCKET.settimeout(5)
-            logging.info('{}:{}创建TCP连接成功！'.format(engine[0], int(engine[1])))
-        except Exception as e:
-            logging.warning(str(e), exc_info=True)
-
-        return channels, HANDLE_SOCKET
+        web_cfg_info, channel_cfg_info = cfg.get_all_info()
+        return web_cfg_info, channel_cfg_info
     except Exception as e:
         logging.warning(str(e), exc_info=False)
 
@@ -244,24 +213,27 @@ class HtDac():
     def __init__(self, info):
         self.engine = info # (host, port, com, timeout)
         self.hBase = None
-        self.handle_socket = None
         self.threads = []
         self.qData = None
         self.qSetData = None
         self.msg_err = []
 
     def startDac(self):
-        print(self.engine)
-        channels, self.handle_socket = getBasic(self.engine, self.hBase)
 
-        if not channels or self.threads: #不可重复执行
+        print(self.engine) # 打印窗体设置参数
+
+        # 获取配置信息
+        channel_cfg_info, web_cfg_info = getBasic(self.engine, self.hBase)
+
+        if not channel_cfg_info or self.threads: #不可重复执行
             return [], None, None
 
         qData = Queue(maxsize=0)     # 设备采集数据
         qSetData = Queue(maxsize=0)  # 设备设置数据
+        threads = []  # 存所有线程               
 
-        threads = []
-        for p in channels: 
+        # 设备采集所有线程
+        for p in channel_cfg_info: 
             chCls = MetaRegCls.getClass(p[1])
             if chCls and p[3]:
                 ch = chCls(p[0], p[4]/1000.) # 串口， 超时时间
@@ -270,34 +242,30 @@ class HtDac():
                     threads.append(cltor)
                 else:
                     self.msg_err.append(ch.msg_err)
+       
+        # web所有线程
+        if web_cfg_info:
+            pass
+            # writer = Writer(qData, self.handle_socket)
+            # threads.append(writer)
 
+            # recevie = Recevie(qSetData, self.handle_socket)
+            # threads.append(recevie)
+
+        # 启动所有线程
         for t in threads:
             t.start()
-
-        #if threads:
-        if True:
-            writer = Writer(qData, self.handle_socket)
-            threads.append(writer)
-            writer.start()
-            
-            recevie = Recevie(qSetData, self.handle_socket)
-            threads.append(recevie)
-            recevie.start()
 
         self.threads = threads
         self.qData = qData
         self.qSetData = qSetData
 
-        return threads, qData
+        return threads, qData, qSetData
 
     def endDac(self):
         for t in self.threads: t.stop()
         for t in self.threads: t.join(t.interval)
-        if self.handle_socket:
-            self.handle_socket.close() #关闭连接
-            logging.info('关闭TCP连接.{}'.format(self.handle_socket))
         self.threads = []
-
 
     def monitor(self):
         '''
