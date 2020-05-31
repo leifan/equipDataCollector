@@ -99,13 +99,15 @@ class Writer(Thread):
     def run(self):
         while not self.finished.is_set():
             # 主动上报数据
-            if not self.qData.empty() or self.handle_socket:
-                json_str = json.dumps(self.qData.get())
-                json_d = json_str.encode('utf-8')
-                dat = struct.pack('<H', 0xAAFF) + len(json_d).to_bytes(4, byteorder='big') + json_d
-                self.handle_socket.sendall(dat)      #数据上报服务器
-                logging.info('主动上报 {}'.format(dat))
-            time.sleep(2)
+            if self.handle_socket:
+                if not self.qData.empty():
+                    json_str = json.dumps(self.qData.get())
+                    json_d = json_str.encode('utf-8')
+                    dat = struct.pack('<H', 0xAAFF) + len(json_d).to_bytes(4, byteorder='big') + json_d
+                    self.handle_socket.sendall(dat)      #数据上报服务器
+                    logging.info('主动上报 {},{},{}'.format(self.qData.qsize(),time.asctime(),dat))
+                else:
+                    time.sleep(2)
         logging.info('Writer 结束')
 
 # 获取服务器数据 线程
