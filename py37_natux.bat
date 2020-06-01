@@ -1,1 +1,1 @@
-start D:\github\equipDataCollector\py37_natux\Scripts\activate.bat
+start .\py37_natux\Scripts\activate.bat

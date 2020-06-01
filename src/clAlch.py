@@ -118,12 +118,13 @@ class Writer(Thread):
 
         concentration = None
         while not self.qData.empty():
-            concentration = self.qData.get()
+            dat = self.qData.get()
+            concentration = dat.get('concentration')
 
         # 上报条件5分钟或者数据变化
-        if concentration['concentration'] == self.concentration or self.runSecondTime % 300 != 0:
+        if concentration and concentration == self.concentration and self.runSecondTime % 300 != 0:
             return None
-        self.concentration = concentration['concentration']
+        self.concentration = concentration
 
         try:
             url = self.web_cfg_info['web_post_toxic_url']
@@ -150,7 +151,7 @@ class Writer(Thread):
         while not self.finished.is_set():
             try:
                 time.sleep(1)
-                
+
                 if self.runSecondTime % 600 == 0: #10分钟
                     self.GetSessionId()
                     time.sleep(1)
