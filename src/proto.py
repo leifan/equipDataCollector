@@ -129,6 +129,7 @@ class ModbusToxicGasChannel(metaclass=MetaRegCls):
             check_dat = ((~check_dat) + 1) & 0xFF # LCR校验方法：1、数据求和 2、取256模 3、取反，然后加1
             xcmd += '{:02X}\r\n'.format(check_dat)
             xcmd = bytes(xcmd.encode('utf-8'))
+            print('xcmd=', xcmd)
             self.master.write(xcmd)
 
             buf, exp = bytearray(), 15
@@ -193,7 +194,7 @@ class ModbusToxicGasChannel(metaclass=MetaRegCls):
             time.sleep(0.2)
             # 2、获取浓度
             dat = self.command(slaveId, cmd, addr) # 气体浓度寄存器地址0x0000 实际浓度=浓度/10^（精度） 范围0-65535
-            if dat:
+            if dat != None:
                 fv = float(dat)
                 if units >= 0 and units <= 3:
                     fv /= pow(10, units)
