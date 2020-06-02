@@ -122,7 +122,7 @@ class Writer(Thread):
             concentration = dat.get('concentration')
 
         # 上报条件5分钟或者数据变化
-        if concentration and concentration == self.concentration and self.runSecondTime % 300 != 0:
+        if concentration != None and concentration == self.concentration and self.runSecondTime % 300 != 0:
             return None
         self.concentration = concentration
 
