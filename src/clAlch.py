@@ -141,6 +141,50 @@ class Writer(Thread):
 
         return None
 
+    def GetEquipData(self):
+        '''
+        获取设备数据
+        1、采集的有毒气体设备数据
+        2、web设备列表匹配待发送数据
+        '''
+        try:
+            dat = {}
+            equipDatList = {}
+            # qData {'equipType'=3, 'equipId'=5, 'modbusaddr'=1 ,'comStatus'=1,'concentration'= 0.0}
+            while not self.qData.empty(): 
+                dat = self.qData.get()
+                equip_info = '{}_{}_{}'.format(dat.get('equipType'), dat.get('equipId'), dat.get('modbusaddr'))
+                equipDatList.update({equip_info:dat})
+
+            print('获取设备数据个数：', len(equipDatList), 'equipDatList:', equipDatList)
+
+            # 匹配web获取的设备列表
+            equipDat = []
+            for k, info in equipDatList.items(): # {'4_5_1': {'equipType'=3, 'equipId'=5, 'modbusaddr'=1 ,'comStatus'=1,'concentration'= 0.0}, }
+                for s in self.toxiGasEquipList: # 
+                    if info['equipType'] == s['equipType'] and info['equipId'] == s['id']:
+                        d = {"equipCode": s['equipCode'],
+                            "appId"    : self.web_cfg_info['appId'],
+                            "id"       : s['id'],
+                            "comStatus": info['comStatus'],
+                            }
+
+                        if 'concentration' in info :
+                            d.update({"concentration": info['concentration']})
+                        
+                        cdat = self.caches.setdefault(k, {})
+                        # cache is a dict of key('4_5_1') with ( d ) elements
+                        # self.caches 缓存设备数据 上报条件5分钟或者数据变化
+                        if cdat != d or self.runSecondTime % 300 == 0 : 
+                            self.caches.update({k:d})
+                            equipDat.append(d)
+            
+            print('待发送设备数据个数：', len(equipDat),'equipDat=', equipDat)
+            return equipDat
+        except Exception as e:
+            logging.warning(str(e), exc_info=True)
+        return None
+
     def SendToxicGasDatatoWeb(self):
         '''
         上报有毒气体数据
@@ -154,39 +198,11 @@ class Writer(Thread):
         if self.qData.empty() or 'sessionId' not in self.web_cfg_info.keys():
             return None
 
-        dat = {}
-        equipDatList = {}
-        # qData {'equipType'=3, 'equipId'=5, 'modbusaddr'=1 ,'comStatus'=1,'concentration'= 0.0}
-        while not self.qData.empty(): 
-            dat = self.qData.get()
-            equip_info = '{}_{}_{}'.format(dat.get('equipType'), dat.get('equipId'), dat.get('modbusaddr'))
-            equipDatList.update({equip_info:dat})
+        equipDat = self.GetEquipData()
+       
+        if not equipDat:
+           return None
 
-        print('获取设备数据个数：', len(equipDatList), 'equipDatList:', equipDatList)
-
-        # 匹配web获取的设备列表
-        equipDat = []
-        for k, info in equipDatList.items(): # {'4_5_1': {'equipType'=3, 'equipId'=5, 'modbusaddr'=1 ,'comStatus'=1,'concentration'= 0.0}, }
-            for s in self.toxiGasEquipList: # 
-                if info['equipType'] == s['equipType'] and info['equipId'] == s['id']:
-                    d = {"equipCode": s['equipCode'],
-                         "appId"    : self.web_cfg_info['appId'],
-                         "id"       : s['id'],
-                         "comStatus": info['comStatus'],
-                         "value"    : info['concentration'],
-                        }
-
-                    cdat = self.caches.setdefault(k, {})
-                    # cache is a dict of key('4_5_1') with ( d ) elements
-                    # self.caches 缓存设备数据 上报条件5分钟或者数据变化
-                    if cdat != d or self.runSecondTime % 300 == 0 : 
-                        self.caches.update({k:d})
-                        equipDat.append(d)
-        
-        print('待发送设备数据个数：', len(equipDat),'equipDat=', equipDat)
-
-        if len(equipDat) == 0:
-            return None
         try:
             url = self.web_cfg_info['web_post_toxic_url']
             headers = {
