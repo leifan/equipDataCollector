@@ -17,6 +17,10 @@ import json
 import struct
 import requests
 
+COM_STATUS_NORMAL   = 1 # 通讯正常
+COM_STATUS_ABNORMAL = 0 # 通讯异常
+
+
 # 采集线程N
 # 需要处理接口协议，多客户端轮询，单客户查询
 class Collector(Thread):
@@ -65,12 +69,18 @@ class Collector(Thread):
             for equipType,equipId,*a in self.addrs: # equipType, equipId, comaddr, 功能代码, 开始地址, 读寄存器个数
                 time.sleep(self.space)
                 ret = self.ch.getSlaveData(equipType,equipId,*a)
-                comStatus = 1
+                comStatus = COM_STATUS_NORMAL
                 if ret:
                     logging.debug('采集(equipType={},equipId={})解析数据:{}'.format(equipType, equipId, ret))  
                 else:
-                    comStatus = 0
+                    comStatus = COM_STATUS_ABNORMAL
                     logging.warning('{} {} {}'.format(self.ch.portName(), '通信故障', a))
+                
+                '''
+                有毒气体qData一体记录数据
+                {'equipType'=3, 'equipId'=5, 'modbusaddr'=1 ,'comStatus'=1,'concentration'= 0.0}
+                {'equipType'=3, 'equipId'=6, 'modbusaddr'=2 ,'comStatus'=1,'concentration'= 1.0}
+                '''
                 ret.update(equipType=equipType, equipId=equipId, modbusaddr=a[0], comStatus=comStatus)
                 self.qData.put(ret)
 
@@ -92,11 +102,30 @@ class Writer(Thread):
         self.interval = 2.0
         self.concentration = 0
         self.runSecondTime = 0
+        self.toxiGasEquipList = [] # web获取设备列表
+        self.caches = {} # 缓存设备数据
 
     def stop(self):
         self.finished.set()
     
     def GetSessionId(self):
+        '''
+        登录获取sessionId
+        web返回格式
+        {
+            "code": 200,
+            "data": {
+                "createTime": "2020-05-16 16:02:48",
+                "creator": "商云辉",
+                "realName": "采集器账号",
+                "sessionId": "b53fed801bc3d869de6eeab52de2c628",
+                "tel": "18729019999",
+                "userId": 22,
+                "userName": "youduqiti@00001"
+            },
+            "desc": "成功"
+        }
+        '''
         try:
             url = self.web_cfg_info['web_login_url']
             params = {'userName': self.web_cfg_info['userName'], 
@@ -111,36 +140,126 @@ class Writer(Thread):
             logging.warning(str(e), exc_info=True)
 
         return None
-    
-    def SendDatatoWeb(self):
+
+    def SendToxicGasDatatoWeb(self):
+        '''
+        上报有毒气体数据
+        上传格式： data = [{"equipCode":"005","appId":"00001","value":10}]
+        web返回格式
+        {
+            "code": 200,
+            "desc": "成功"
+        }
+        '''
         if self.qData.empty() or 'sessionId' not in self.web_cfg_info.keys():
             return None
 
-        concentration = None
-        while not self.qData.empty():
+        dat = {}
+        equipDatList = {}
+        # qData {'equipType'=3, 'equipId'=5, 'modbusaddr'=1 ,'comStatus'=1,'concentration'= 0.0}
+        while not self.qData.empty(): 
             dat = self.qData.get()
-            concentration = dat.get('concentration')
+            equip_info = '{}_{}_{}'.format(dat.get('equipType'), dat.get('equipId'), dat.get('modbusaddr'))
+            equipDatList.update({equip_info:dat})
 
-        # 上报条件5分钟或者数据变化
-        if concentration != None and concentration == self.concentration and self.runSecondTime % 300 != 0:
+        print('获取设备数据个数：', len(equipDatList), 'equipDatList:', equipDatList)
+
+        # 匹配web获取的设备列表
+        equipDat = []
+        for k, info in equipDatList.items(): # {'4_5_1': {'equipType'=3, 'equipId'=5, 'modbusaddr'=1 ,'comStatus'=1,'concentration'= 0.0}, }
+            for s in self.toxiGasEquipList: # 
+                if info['equipType'] == s['equipType'] and info['equipId'] == s['id']:
+                    d = {"equipCode": s['equipCode'],
+                         "appId"    : self.web_cfg_info['appId'],
+                         "id"       : s['id'],
+                         "comStatus": info['comStatus'],
+                         "value"    : info['concentration'],
+                        }
+
+                    cdat = self.caches.setdefault(k, {})
+                    # cache is a dict of key('4_5_1') with ( d ) elements
+                    # self.caches 缓存设备数据 上报条件5分钟或者数据变化
+                    if cdat != d or self.runSecondTime % 300 == 0 : 
+                        self.caches.update({k:d})
+                        equipDat.append(d)
+        
+        print('待发送设备数据个数：', len(equipDat),'equipDat=', equipDat)
+
+        if len(equipDat) == 0:
             return None
-        self.concentration = concentration
-
         try:
             url = self.web_cfg_info['web_post_toxic_url']
             headers = {
                         'Content-Type':'application/x-www-form-urlencoded; charset=UTF-8',
-                        'Cookie':'sessionId={}'.format(self.web_cfg_info['sessionId'],
-                        )
+                        'Cookie':'sessionId={}'.format(self.web_cfg_info['sessionId']),
                     }
-            data = [{"equipCode":"005","appId":"00001","value":self.concentration}]
-            data = json.dumps(data)
-            params = {'data': data}
+            params = {'data': json.dumps(equipDat)}
             r = requests.post(url=url, headers=headers, params=params)
-            logging.info('上报有毒气体{} 结果:{} {}'.format(params, r, r.content.decode('utf-8')))
+            logging.info('上报数据 {} 结果:{} {}'.format(params, r, r.content.decode('utf-8')))
         except Exception as e:
             logging.warning(str(e), exc_info=True)
         return None
+
+    def GetEquipInfoFromWeb(self):
+        '''
+        获取设备列表 
+        web返回格式
+        {
+            "code": 200,
+            "data": {
+                "list": [
+                    {
+                        "createTime": 1590951785000,
+                        "createTimePlain": "2020-06-01 03:03:05",
+                        "creator": "王",
+                        "deviceId": "",
+                        "effect": "",
+                        "equipBrand": "其他",
+                        "equipCode": "005",
+                        "equipName": "有毒气体臭氧",
+                        "equipStatus": 0,
+                        "equipType": 4,
+                        "frequency": 10,
+                        "id": 5,
+                        "joinType": 2,
+                        "showId": 1,
+                        "threshold": 1.00
+                    },
+                ],
+                "pagination": {
+                    "currentPage": 1,
+                    "limit": 25,
+                    "offset": 0,
+                    "recordPerPage": 25,
+                    "totalPage": 1,
+                    "totalRecord": 1
+                }
+            },
+            "desc": "成功"
+        }
+        '''
+        equipList = []
+
+        try:
+            url = self.web_cfg_info['web_get_toxic_equip_url']
+            headers = {
+                        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                        'Cookie'      : 'sessionId={}'.format(self.web_cfg_info['sessionId']),
+                      }
+            params= { 'sessiondId'   : self.web_cfg_info['sessionId'], 
+                      'recordPerPage': self.web_cfg_info['recordPerPage'] 
+                    }
+            r = requests.post(url=url, headers=headers, params=params)
+            r2 = r.json()
+            equipList = r2['data']['list'] or []
+            print(equipList)
+            logging.info('获取设备{}个 结果:{} {}'.format(len(equipList), r, r.content.decode('utf-8')))
+        except Exception as e:
+            logging.warning(str(e), exc_info=True)
+
+        # 更新有毒气体设备列表
+        self.toxiGasEquipList = [x for x in equipList]
+        return self.toxiGasEquipList
 
     def run(self):
         '''
@@ -156,13 +275,14 @@ class Writer(Thread):
                     self.GetSessionId()
                     time.sleep(1)
 
-                if self.runSecondTime % 3 == 0: # 3s
-                    self.SendDatatoWeb()
+                if self.runSecondTime % 300 == 0: #5分钟
+                    self.GetEquipInfoFromWeb()
                     time.sleep(1)
-                
-                if self.runSecondTime % 302 == 0: #5分钟
-                    pass
 
+                if self.runSecondTime % 3 == 0: # 3s
+                    self.SendToxicGasDatatoWeb()
+                    time.sleep(1)
+            
                 self.runSecondTime += 1
             except Exception as e:
                 logging.warning(str(e), exc_info=True)
@@ -242,7 +362,8 @@ class EquipCfg:
         return equipinfo
     
     def get_web_cfg(self):
-        web_cfg_info = {'web_login_url':None,
+        web_cfg_info = {'appId':None,
+                        'web_login_url':None,
                         'userName':None,
                         'password':None,
                         'web_get_toxic_equip_url':None,
