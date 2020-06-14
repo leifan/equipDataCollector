@@ -185,7 +185,7 @@ class Writer(Thread):
             logging.warning(str(e), exc_info=True)
         return None
 
-    def SendToxicGasDatatoWeb(self):
+    def SendEquipDatatoWeb(self):
         '''
         上报有毒气体数据
         上传格式： data = [{"equipCode":"005","appId":"00001","value":10}]
@@ -296,7 +296,7 @@ class Writer(Thread):
                     time.sleep(1)
 
                 if self.runSecondTime % 3 == 0: # 3s
-                    self.SendToxicGasDatatoWeb()
+                    self.SendEquipDatatoWeb()
                     time.sleep(1)
             
                 self.runSecondTime += 1
