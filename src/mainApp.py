@@ -92,7 +92,6 @@ class GuiLogger(QtWidgets.QPlainTextEdit):
     def flush(self):
         pass
 
-
 class MainWindow(QtWidgets.QDialog):
 
     def __init__(self, parent = None):
@@ -193,8 +192,6 @@ class MainWindow(QtWidgets.QDialog):
     def monitorWorkers(self):
         if self.dac:
             self.dac.monitor()
-
-
 
 class SettingsWindow(QtWidgets.QDialog):
     def __init__(self, parent, cfg):

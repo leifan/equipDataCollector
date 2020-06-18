@@ -16,6 +16,9 @@ exec(slave=1, function_code=READ_HOLDING_REGISTERS, starting_address=0, quantity
 @expected_length：（没对这个设置过）
 '''
 
+COM_STATUS_NORMAL   = 1 # 通讯正常
+COM_STATUS_ABNORMAL = 0 # 通讯异常
+
 #协议处理接口类：metaclass, protoType, master, getSlaveData, setSlaveData
 class MetaRegCls(type):
     protoClsReg = {}
@@ -106,7 +109,6 @@ class ModbusRtuCh(modbusRtuChannel):
             logging.warning('设置(equipType={},equipId={},addr={},value={})异常.'.format(equipType, equipId, addr, value))
         return None
 
-
 class ModbusToxicGasChannel(metaclass=MetaRegCls):
     '''
     有毒气体传感器协议
@@ -180,6 +182,7 @@ class ModbusToxicGasChannel(metaclass=MetaRegCls):
         return ret
 
     def getSlaveData(self, equipType, equipId, slaveId, cmd, addr, num):
+        ret_dict = dict(dataType='ToxicGas', equipType=equipType, equipId=equipId, modbusaddr=slaveId)
         try:
             dinfo = "[{}, {}]".format(self.portName(), slaveId)
             # 1、刷新精度 （3分钟）
@@ -198,14 +201,15 @@ class ModbusToxicGasChannel(metaclass=MetaRegCls):
                 fv = float(dat)
                 if units >= 0 and units <= 3:
                     fv /= pow(10, units)
-
-                d = dict(concentration=fv)
-                return d
+                d = dict(comStatus=COM_STATUS_NORMAL, concentration=fv)
+                ret_dict.update(d)
             else:
                 raise Exception("有毒气体获取浓度失败: " + dinfo)
         except Exception as e:
+            d = dict(comStatus=COM_STATUS_ABNORMAL)
+            ret_dict.update(d)
             logging.warning(str(e))
-        return {}
+        return ret_dict
 
     def portName(self):
         return self.master.name if self.master else ""

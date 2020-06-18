@@ -11,14 +11,12 @@ from collections import deque, defaultdict
 from itertools import groupby
 
 from proto import MetaRegCls
+from get_gate_way_info import GetGateWayInfo, udp_gw
 
 import socket
 import json
 import struct
 import requests
-
-COM_STATUS_NORMAL   = 1 # 通讯正常
-COM_STATUS_ABNORMAL = 0 # 通讯异常
 
 
 # 采集线程N
@@ -69,19 +67,16 @@ class Collector(Thread):
             for equipType,equipId,*a in self.addrs: # equipType, equipId, comaddr, 功能代码, 开始地址, 读寄存器个数
                 time.sleep(self.space)
                 ret = self.ch.getSlaveData(equipType,equipId,*a)
-                comStatus = COM_STATUS_NORMAL
-                if ret:
+                if ret['comStatus']:
                     logging.debug('采集(equipType={},equipId={})解析数据:{}'.format(equipType, equipId, ret))  
                 else:
-                    comStatus = COM_STATUS_ABNORMAL
                     logging.warning('{} {} {}'.format(self.ch.portName(), '通信故障', a))
                 
                 '''
                 有毒气体qData一体记录数据
-                {'equipType'=3, 'equipId'=5, 'modbusaddr'=1 ,'comStatus'=1,'concentration'= 0.0}
-                {'equipType'=3, 'equipId'=6, 'modbusaddr'=2 ,'comStatus'=1,'concentration'= 1.0}
+                通讯正常数据 {dataType='ToxicGas','equipType'=3, 'equipId'=5, 'modbusaddr'=1 ,'comStatus'=1,'concentration'= 0.0}
+                通讯故障数据 {dataType='ToxicGas','equipType'=3, 'equipId'=6, 'modbusaddr'=2 ,'comStatus'=0}
                 '''
-                ret.update(equipType=equipType, equipId=equipId, modbusaddr=a[0], comStatus=comStatus)
                 self.qData.put(ret)
 
             left = self.interval - (time.time() - t0)
@@ -141,18 +136,18 @@ class Writer(Thread):
 
         return None
 
-    def GetEquipData(self):
+    def GetToxicGasEquipData(self, dat):
         '''
         获取设备数据
         1、采集的有毒气体设备数据
         2、web设备列表匹配待发送数据
         '''
+        if dat:
+            return []
         try:
-            dat = {}
             equipDatList = {}
             # qData {'equipType'=3, 'equipId'=5, 'modbusaddr'=1 ,'comStatus'=1,'concentration'= 0.0}
-            while not self.qData.empty(): 
-                dat = self.qData.get()
+            if 'ToxicGas' == dat['dataType']: # 筛选取有毒气体相关数据
                 equip_info = '{}_{}_{}'.format(dat.get('equipType'), dat.get('equipId'), dat.get('modbusaddr'))
                 equipDatList.update({equip_info:dat})
 
@@ -183,9 +178,31 @@ class Writer(Thread):
             return equipDat
         except Exception as e:
             logging.warning(str(e), exc_info=True)
-        return None
+        return []
 
-    def SendEquipDatatoWeb(self):
+    def GetLvMiEquipData(self, dat):
+        '''
+        获取绿米相关设备数据
+        '''
+        equipDat = []
+        # dataType='LvMi', sid=sid, comStatus=1, params=heart_dat.get('params')
+        if dat and 'LvMi' == dat['dataType']: # 筛选绿米设备相关数据
+            d = {
+                    "appId"    : self.web_cfg_info['appId'],
+                    "id"       : dat['sid'],
+                    "comStatus": dat['comStatus'],
+                }
+            # 设备相关数据提取
+            # 举例温湿度参数 'params': [{'battery_voltage': 2985}, {'temperature': 2356}, {'humidity': 6183}, {'pressure': 95443}]
+            params = dat['params'] 
+            if params:
+                for i in params:
+                    d.update(i)
+            equipDat.append(d)
+        return equipDat
+
+        
+    def SendEquipDatatoWeb(self, equipDat):
         '''
         上报有毒气体数据
         上传格式： data = [{"equipCode":"005","appId":"00001","value":10}]
@@ -195,13 +212,11 @@ class Writer(Thread):
             "desc": "成功"
         }
         '''
-        if self.qData.empty() or 'sessionId' not in self.web_cfg_info.keys():
-            return None
-
-        equipDat = self.GetEquipData()
-       
         if not equipDat:
            return None
+
+        if 'sessionId' not in self.web_cfg_info.keys():
+            return None
 
         try:
             url = self.web_cfg_info['web_post_toxic_url']
@@ -296,7 +311,11 @@ class Writer(Thread):
                     time.sleep(1)
 
                 if self.runSecondTime % 3 == 0: # 3s
-                    self.SendEquipDatatoWeb()
+                    while not self.qData.empty(): 
+                        dat = self.qData.get()
+                        equipDat = self.GetToxicGasEquipData(dat) # 获取有毒气体数据
+                        equipDat += self.GetLvMiEquipData(dat)    # 获取绿米设备数据
+                        self.SendEquipDatatoWeb(equipDat)
                     time.sleep(1)
             
                 self.runSecondTime += 1
@@ -305,22 +324,59 @@ class Writer(Thread):
         
         logging.info('Writer 结束')
 
-# 获取服务器数据 线程
+# 获取空调伴侣网关 线程
 class Recevie(Thread):
-    def __init__(self, qData):
+    def __init__(self, qData, web_cfg_info):
         super().__init__(daemon=True)
         self.finished = Event()
         self.qData = qData
         self.interval = 2.0
+        self.runSecondTime = 0
 
     def stop(self):
         self.finished.set()
 
     def run(self):
+        gw_all = GetGateWayInfo()
+        gateWay_list = gw_all.GetGateWayEquipInfo()
+        logging.info('获取网关信息：{}'.format(gateWay_list))
+
+        # 获取网关ip,创建网关
+        gw_list = []
+        for a in gateWay_list:
+            gw_list.append(udp_gw(a['ip']))
+        
+        # 获取每个网关下子设备 获取sid
+        '''
+        {
+        'gateway_50ec50c708fa': '50ec50c708fa', 
+        'plug_158d000392613e': '158d000392613e', 
+        'remote.b186acn01_158d0004563c17': '158d0004563c17', 
+        'weather_158d00045c946f': '158d00045c946f'
+        }
+        '''
+        sid_list = [] # 所有子设备sid
+        for gw in gw_list:
+            time.sleep(5)
+            d = gw.get_dict_model_sid()
+            sid_list += d.values()
+            print('get_dict_model_sid=', d, 'sid_list=', sid_list)
+
+        # 轮询子设备心跳包    
         while not self.finished.is_set():
-            pass
+            # {"cmd":"heartbeat","model":"acpartner.v3","sid":"50ec50c708fa","token":"VdcDlmz9KOALtG3F","params":[{"ip":"192.168.1.102"}]}
+            heart_dat = gw_all.GetGatewayHeart()
+            sid =  heart_dat.get('sid')
+            model = heart_dat.get('model')
+            if sid and 'acpartner' not in model:
+                d = dict(dataType='LvMi', sid=sid, comStatus=1, params=heart_dat.get('params')) 
+                print('*'*50)
+                print(d)
+                print('***绿米设备***'*5)
+                self.qData.put(d) 
 
         logging.info('Recevie 结束')
+
 
 # 解析配置文件
 class EquipCfg:
@@ -446,8 +502,8 @@ class HtDac():
             writer = Writer(qData, web_cfg_info)
             threads.append(writer)
 
-            # recevie = Recevie(qSetData, self.handle_socket)
-            # threads.append(recevie)
+            recevie = Recevie(qData, web_cfg_info) # 获取绿米网关相关信息
+            threads.append(recevie)
 
         # 启动所有线程
         for t in threads:
