@@ -1,6 +1,6 @@
 # encoding:utf-8
 import time
-from datetime import datetime, timezone
+import datetime
 import os
 import sys, configparser
 import logging
@@ -17,7 +17,6 @@ import socket
 import json
 import struct
 import requests
-
 
 # 采集线程N
 # 需要处理接口协议，多客户端轮询，单客户查询
@@ -97,7 +96,7 @@ class Writer(Thread):
         self.interval = 2.0
         self.concentration = 0
         self.runSecondTime = 0
-        self.toxiGasEquipList = [] # web获取设备列表
+        self.equipList = [] # web获取设备列表
         self.caches = {} # 缓存设备数据
 
     def stop(self):
@@ -142,7 +141,7 @@ class Writer(Thread):
         1、采集的有毒气体设备数据
         2、web设备列表匹配待发送数据
         '''
-        if dat:
+        if not dat:
             return []
         try:
             equipDatList = {}
@@ -150,27 +149,29 @@ class Writer(Thread):
             if 'ToxicGas' == dat['dataType']: # 筛选取有毒气体相关数据
                 equip_info = '{}_{}_{}'.format(dat.get('equipType'), dat.get('equipId'), dat.get('modbusaddr'))
                 equipDatList.update({equip_info:dat})
-
+            
             print('获取设备数据个数：', len(equipDatList), 'equipDatList:', equipDatList)
 
             # 匹配web获取的设备列表
             equipDat = []
             for k, info in equipDatList.items(): # {'4_5_1': {'equipType'=3, 'equipId'=5, 'modbusaddr'=1 ,'comStatus'=1,'concentration'= 0.0}, }
-                for s in self.toxiGasEquipList: # 
+                for s in self.equipList: 
                     if info['equipType'] == s['equipType'] and info['equipId'] == s['id']:
-                        d = {"equipCode": s['equipCode'],
+                        d = {
+                            "equipType": s['equipType'],
+                            "equipCode": s['equipCode'],
                             "appId"    : self.web_cfg_info['appId'],
                             "id"       : s['id'],
                             "comStatus": info['comStatus'],
                             }
 
                         if 'concentration' in info :
-                            d.update({"concentration": info['concentration']})
+                            d.update({"value": info['concentration']})
                         
                         cdat = self.caches.setdefault(k, {})
                         # cache is a dict of key('4_5_1') with ( d ) elements
                         # self.caches 缓存设备数据 上报条件5分钟或者数据变化
-                        if cdat != d or self.runSecondTime % 300 == 0 : 
+                        if cdat != d or self.runSecondTime % int(self.web_cfg_info['report_interval']) == 0 : 
                             self.caches.update({k:d})
                             equipDat.append(d)
             
@@ -183,29 +184,70 @@ class Writer(Thread):
     def GetLvMiEquipData(self, dat):
         '''
         获取绿米相关设备数据
+
+        # {
+        #     "createTime": 1590951785000,
+        #     "createTimePlain": "2020-06-01 03:03:05",
+        #     "creator": "王",
+        #     "deviceId": "lumi.158d000392613e",
+        #     "effect": "",
+        #     "equipBrand": "绿米",
+        #     "equipCode": "004",
+        #     "equipName": "插座",
+        #     "equipStatus": 0,
+        #     "equipType": 7,
+        #     "frequency": 10,
+        #     "id": 4,
+        #     "joinType": 1,
+        #     "threshold": 1.00
+        # },
         '''
+        if not dat or 'LvMi' != dat['dataType']: # 筛选绿米设备相关数据
+            return []
+
         equipDat = []
         # dataType='LvMi', sid=sid, comStatus=1, params=heart_dat.get('params')
-        if dat and 'LvMi' == dat['dataType']: # 筛选绿米设备相关数据
-            d = {
-                    "appId"    : self.web_cfg_info['appId'],
-                    "id"       : dat['sid'],
-                    "comStatus": dat['comStatus'],
-                }
-            # 设备相关数据提取
-            # 举例温湿度参数 'params': [{'battery_voltage': 2985}, {'temperature': 2356}, {'humidity': 6183}, {'pressure': 95443}]
-            params = dat['params'] 
-            if params:
-                for i in params:
-                    d.update(i)
-            equipDat.append(d)
-        return equipDat
 
-        
+        # 设备相关数据提取
+        # 举例温湿度参数 'params': [{'battery_voltage': 2985}, {'temperature': 2356}, {'humidity': 6183}, {'pressure': 95443}]
+        # 温湿度传感器的数据需要拆开 分为 
+        # equipType = 1 湿度
+        # equipType = 2 温度 
+        # equipType = 3 压力 
+        for k in dat['params']:
+            equipType = 1
+            value = 0
+            if 'temperature' in k:
+                equipType = 1
+                value = k['temperature']
+            elif 'humidity' in k:
+                equipType = 2
+                value = k['humidity']
+            elif 'pressure' in k:   
+                equipType = 3
+                value = k['pressure']
+            else :
+                continue
+
+            for s in self.equipList:
+                sid = dat.get('sid') 
+                deviceId = s['deviceId']
+                eType = s['equipType']
+                if sid and deviceId and sid in deviceId and equipType == eType:
+                    d = {"equipType": s['equipType'],
+                        "equipCode": s['equipCode'],
+                        "appId"    : self.web_cfg_info['appId'],
+                        "id"       : s['id'],
+                        "comStatus": dat['comStatus'],
+                        "value"    : value,
+                        }
+                    equipDat.append(d)
+        return equipDat
+     
     def SendEquipDatatoWeb(self, equipDat):
         '''
         上报有毒气体数据
-        上传格式： data = [{"equipCode":"005","appId":"00001","value":10}]
+        上传格式举例： data = [{"equipType":4,:equipCode":"005","appId":"00001","value":10}]
         web返回格式
         {
             "code": 200,
@@ -215,7 +257,7 @@ class Writer(Thread):
         if not equipDat:
            return None
 
-        if 'sessionId' not in self.web_cfg_info.keys():
+        if  not self.web_cfg_info.get('sessionId'):
             return None
 
         try:
@@ -270,7 +312,6 @@ class Writer(Thread):
         }
         '''
         equipList = []
-
         try:
             url = self.web_cfg_info['web_get_toxic_equip_url']
             headers = {
@@ -289,8 +330,8 @@ class Writer(Thread):
             logging.warning(str(e), exc_info=True)
 
         # 更新有毒气体设备列表
-        self.toxiGasEquipList = [x for x in equipList]
-        return self.toxiGasEquipList
+        self.equipList = [x for x in equipList]
+        return self.equipList
 
     def run(self):
         '''
@@ -306,7 +347,7 @@ class Writer(Thread):
                     self.GetSessionId()
                     time.sleep(1)
 
-                if self.runSecondTime % 300 == 0: #5分钟
+                if self.runSecondTime % 300 == 0: # 300 = 5分钟 180=3分钟
                     self.GetEquipInfoFromWeb()
                     time.sleep(1)
 
@@ -337,6 +378,7 @@ class Recevie(Thread):
         self.finished.set()
 
     def run(self):
+        logging.info('开始获取网关信息')
         gw_all = GetGateWayInfo()
         gateWay_list = gw_all.GetGateWayEquipInfo()
         logging.info('获取网关信息：{}'.format(gateWay_list))
@@ -362,9 +404,15 @@ class Recevie(Thread):
             sid_list += d.values()
             print('get_dict_model_sid=', d, 'sid_list=', sid_list)
 
+        
+        HEART_CHECK_TIME = 60 * 60 # 温湿度心跳检测时间(秒)
+        weather_sid_dat = {} # 记录温湿度数据
+        
         # 轮询子设备心跳包    
         while not self.finished.is_set():
             # {"cmd":"heartbeat","model":"acpartner.v3","sid":"50ec50c708fa","token":"VdcDlmz9KOALtG3F","params":[{"ip":"192.168.1.102"}]}
+            # {"cmd":"report","model":"weather","sid":"158d00045c946f","params":[{"temperature":2526}]}
+            starttime = datetime.datetime.now() # 当前时间
             heart_dat = gw_all.GetGatewayHeart()
             sid =  heart_dat.get('sid')
             model = heart_dat.get('model')
@@ -374,6 +422,18 @@ class Recevie(Thread):
                 print(d)
                 print('***绿米设备***'*5)
                 self.qData.put(d) 
+
+            if sid in weather_sid_dat:
+                weather_sid_dat[sid] = HEART_CHECK_TIME
+            
+            endtime = datetime.datetime.now()
+            runtime = (endtime - starttime).seconds
+
+            for sid in weather_sid_dat:
+                weather_sid_dat[sid] = weather_sid_dat[sid] - runtime
+                if weather_sid_dat[sid] <= 0 :
+                    d = dict(dataType='LvMi', sid=sid, comStatus=0, params=None) 
+                    self.qData.put(d) 
 
         logging.info('Recevie 结束')
 
@@ -441,6 +501,7 @@ class EquipCfg:
                         'web_get_toxic_equip_url':None,
                         'recordPerPage':None,
                         'web_post_toxic_url':None,
+                        'report_interval':None,
                        }
         try:
             for k in web_cfg_info.keys():

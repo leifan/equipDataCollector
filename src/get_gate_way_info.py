@@ -139,7 +139,8 @@ class GetGateWayInfo():
         {"cmd":"heartbeat","model":"acpartner.v3","sid":"50ec50c708fa","token":"VdcDlmz9KOALtG3F","params":[{"ip":"192.168.1.102"}]}
         {"cmd":"report","model":"weather","sid":"158d00045c946f","params":[{"temperature":2526}]}
         '''
-        SENDERIP = "0.0.0.0" 
+        SENDERIP = "0.0.0.0"
+        #SENDERIP = "192.168.1.108"  
         MYPORT = 9898
         MYGROUP = '224.0.0.50'
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
@@ -171,10 +172,10 @@ class GetGateWayInfo():
             m = self.GetGatewayHeart()
             print('第{}次心跳包:{}'.format(i+1, m))
             # {"cmd":"heartbeat","model":"acpartner.v3","sid":"50ec50c708fa","token":"VdcDlmz9KOALtG3F","params":[{"ip":"192.168.1.102"}]}
-            if 'acpartner' in m.get('model'): # model为空调伴侣
+            if 'acpartner' in m.get('model'): # acpartner 为空调伴侣
                 model = m.get('model')
                 sid =  m.get('sid')
-                ip = m.get('params')[0]['ip']
+                ip = m.get('params')[0].get('ip')
                 if ip not in ip_list:
                     print('获取网关ip:',ip)
                     self.gateWay_list.append({'model':model, 'sid':sid, 'ip':ip})
@@ -182,7 +183,7 @@ class GetGateWayInfo():
         return self.gateWay_list
 
 if __name__=='__main__':
-    
+    print('开始获取网关信息')    
     gw_all = GetGateWayInfo()
     gateWay_list = gw_all.GetGateWayEquipInfo()
     print('获取网关信息：\n',gateWay_list)
