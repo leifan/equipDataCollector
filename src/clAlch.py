@@ -141,71 +141,43 @@ class Writer(Thread):
         1、采集的有毒气体设备数据
         2、web设备列表匹配待发送数据
         '''
-        if not dat:
-            return []
+        if not dat or 'ToxicGas' != dat['dataType'] : # 筛选取有毒气体相关数据
+            return None
         try:
-            equipDatList = {}
             # qData {'equipType'=3, 'equipId'=5, 'modbusaddr'=1 ,'comStatus'=1,'concentration'= 0.0}
-            if 'ToxicGas' == dat['dataType']: # 筛选取有毒气体相关数据
-                equip_info = '{}_{}_{}'.format(dat.get('equipType'), dat.get('equipId'), dat.get('modbusaddr'))
-                equipDatList.update({equip_info:dat})
-            
-            print('获取设备数据个数：', len(equipDatList), 'equipDatList:', equipDatList)
-
+            equip_info = '{}_{}_{}'.format(dat.get('equipType'), dat.get('equipId'), dat.get('modbusaddr'))
             # 匹配web获取的设备列表
-            equipDat = []
-            for k, info in equipDatList.items(): # {'4_5_1': {'equipType'=3, 'equipId'=5, 'modbusaddr'=1 ,'comStatus'=1,'concentration'= 0.0}, }
-                for s in self.equipList: 
-                    if info['equipType'] == s['equipType'] and info['equipId'] == s['id']:
-                        d = {
-                            "equipType": s['equipType'],
-                            "equipCode": s['equipCode'],
-                            "appId"    : self.web_cfg_info['appId'],
-                            "id"       : s['id'],
-                            "comStatus": info['comStatus'],
-                            }
+            for s in self.equipList: 
+                if dat['equipType'] == s['equipType'] and dat['equipId'] == s['id']:
+                    d = {
+                        "equipType": s['equipType'],
+                        "equipCode": s['equipCode'],
+                        "appId"    : self.web_cfg_info['appId'],
+                        "id"       : s['id'],
+                        "comStatus": dat['comStatus'],
+                        }
 
-                        if 'concentration' in info :
-                            d.update({"value": info['concentration']})
-                        
-                        cdat = self.caches.setdefault(k, {})
-                        # cache is a dict of key('4_5_1') with ( d ) elements
-                        # self.caches 缓存设备数据 上报条件5分钟或者数据变化
-                        if cdat != d or self.runSecondTime % int(self.web_cfg_info['report_interval']) == 0 : 
-                            self.caches.update({k:d})
-                            equipDat.append(d)
-            
-            print('待发送设备数据个数：', len(equipDat),'equipDat=', equipDat)
-            return equipDat
+                    if 'concentration' in dat :
+                        d.update({"value": dat['concentration']})
+                    
+                    cdat = self.caches.setdefault(equip_info, {})
+                    # cache is a dict of key('4_5_1') with ( d ) elements
+                    # self.caches 缓存设备数据 上报条件5分钟或者数据变化
+                    if cdat != d or self.runSecondTime % int(self.web_cfg_info['report_interval']) == 0 : 
+                        self.caches.update({equip_info : d})
+                        return {equip_info : d}
         except Exception as e:
             logging.warning(str(e), exc_info=True)
-        return []
+        return None
 
     def GetLvMiEquipData(self, dat):
         '''
         获取绿米相关设备数据
-
-        # {
-        #     "createTime": 1590951785000,
-        #     "createTimePlain": "2020-06-01 03:03:05",
-        #     "creator": "王",
-        #     "deviceId": "lumi.158d000392613e",
-        #     "effect": "",
-        #     "equipBrand": "绿米",
-        #     "equipCode": "004",
-        #     "equipName": "插座",
-        #     "equipStatus": 0,
-        #     "equipType": 7,
-        #     "frequency": 10,
-        #     "id": 4,
-        #     "joinType": 1,
-        #     "threshold": 1.00
-        # },
         '''
         if not dat or 'LvMi' != dat['dataType']: # 筛选绿米设备相关数据
-            return []
+            return None
 
-        equipDat = []
+        equipDat = {}
         # dataType='LvMi', sid=sid, comStatus=1, params=heart_dat.get('params')
 
         # 设备相关数据提取
@@ -228,9 +200,9 @@ class Writer(Thread):
                 value = k['pressure']
             else :
                 continue
-
+            
+            sid = dat.get('sid') 
             for s in self.equipList:
-                sid = dat.get('sid') 
                 deviceId = s['deviceId']
                 eType = s['equipType']
                 if sid and deviceId and sid in deviceId and equipType == eType:
@@ -241,7 +213,7 @@ class Writer(Thread):
                         "comStatus": dat['comStatus'],
                         "value"    : value,
                         }
-                    equipDat.append(d)
+                    equipDat.update({sid : d})
         return equipDat
      
     def SendEquipDatatoWeb(self, equipDat):
@@ -352,11 +324,14 @@ class Writer(Thread):
                     time.sleep(1)
 
                 if self.runSecondTime % 3 == 0: # 3s
+                    equipDat = {}
                     while not self.qData.empty(): 
                         dat = self.qData.get()
-                        equipDat = self.GetToxicGasEquipData(dat) # 获取有毒气体数据
-                        equipDat += self.GetLvMiEquipData(dat)    # 获取绿米设备数据
-                        self.SendEquipDatatoWeb(equipDat)
+                        equipDat.update(self.GetToxicGasEquipData(dat) or {}) # 获取有毒气体数据
+                        equipDat.update(self.GetLvMiEquipData(dat) or {}) # 获取绿米设备数据
+
+                    if len(equipDat):
+                        self.SendEquipDatatoWeb(list(equipDat.values())) # 发送数据
                     time.sleep(1)
             
                 self.runSecondTime += 1
