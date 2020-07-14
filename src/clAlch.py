@@ -348,13 +348,15 @@ class Recevie(Thread):
         self.qData = qData
         self.interval = 2.0
         self.runSecondTime = 0
+        self.IP = web_cfg_info['IP']
 
     def stop(self):
         self.finished.set()
 
     def run(self):
         logging.info('开始获取网关信息')
-        gw_all = GetGateWayInfo()
+        logging.info('本机IP{}'.format(self.IP))
+        gw_all = GetGateWayInfo(self.IP)
         gateWay_list = gw_all.GetGateWayEquipInfo()
         logging.info('获取网关信息：{}'.format(gateWay_list))
 
@@ -434,7 +436,6 @@ class EquipCfg:
         return ret
 
     def get_all_info(self):
-
         return self.get_channel(), self.get_web_cfg()
 
     def get_channel(self):
@@ -469,7 +470,8 @@ class EquipCfg:
         return equipinfo
     
     def get_web_cfg(self):
-        web_cfg_info = {'appId':None,
+        web_cfg_info = {'IP':None,
+                        'appId':None,
                         'web_login_url':None,
                         'userName':None,
                         'password':None,
@@ -492,8 +494,7 @@ class EquipCfg:
 def getBasic(engine, Base):
     try:
         cfg = EquipCfg('equipCfg.ini')
-        web_cfg_info, channel_cfg_info = cfg.get_all_info()
-        return web_cfg_info, channel_cfg_info
+        return  cfg.get_all_info()
     except Exception as e:
         logging.warning(str(e), exc_info=False)
 

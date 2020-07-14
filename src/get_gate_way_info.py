@@ -130,8 +130,9 @@ class GetGateWayInfo():
     '''
     获取局域网网关信息
     '''
-    def __init__(self):
+    def __init__(self, senderIp = '0.0.0.0'):
         self.gateWay_list = []
+        self.senderIp = senderIp
 
     def GetGatewayHeart(self):
         '''
@@ -140,7 +141,9 @@ class GetGateWayInfo():
         {"cmd":"report","model":"weather","sid":"158d00045c946f","params":[{"temperature":2526}]}
         '''
         SENDERIP = "0.0.0.0"
-        #SENDERIP = "192.168.1.108"  
+        if self.senderIp != SENDERIP :
+            SENDERIP = self.senderIp
+        print('SENDERIP=',SENDERIP)
         MYPORT = 9898
         MYGROUP = '224.0.0.50'
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
