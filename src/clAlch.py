@@ -523,6 +523,14 @@ class HtDac():
         qSetData = Queue(maxsize=0)  # 设备设置数据
         threads = []  # 存所有线程               
 
+        # web所有线程, 获取设备列表线程优先启动
+        if web_cfg_info:
+            writer = Writer(qData, web_cfg_info)
+            threads.append(writer)
+
+            recevie = Recevie(qData, web_cfg_info) # 获取绿米网关相关信息
+            threads.append(recevie)
+
         # 设备采集所有线程
         for p in channel_cfg_info: 
             chCls = MetaRegCls.getClass(p[1])
@@ -534,14 +542,6 @@ class HtDac():
                 else:
                     self.msg_err.append(ch.msg_err)
        
-        # web所有线程
-        if web_cfg_info:
-            writer = Writer(qData, web_cfg_info)
-            threads.append(writer)
-
-            recevie = Recevie(qData, web_cfg_info) # 获取绿米网关相关信息
-            threads.append(recevie)
-
         # 启动所有线程
         for t in threads:
             t.start()

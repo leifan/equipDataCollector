@@ -731,123 +731,13 @@
 }
 
 # 获取设备列表：
-{
-    "code": 200,
-    "data": {
-        "list": [
-            {
-                "createTime": 1590951785000,
-                "createTimePlain": "2020-06-01 03:03:05",
-                "creator": "王",
-                "deviceId": "lumi.158d0004845db6",
-                "effect": "",
-                "equipBrand": "绿米",
-                "equipCode": "001",
-                "equipName": "门口开关",
-                "equipStatus": 0,
-                "equipType": 6,
-                "frequency": 10,
-                "id": 1,
-                "joinType": 1,
-                "threshold": 1.00
-            },
-            {
-                "createTime": 1590951785000,
-                "createTimePlain": "2020-06-01 03:03:05",
-                "creator": "王",
-                "deviceId": "lumi.158d0004845db6",
-                "effect": "",
-                "equipBrand": "绿米",
-                "equipCode": "002",
-                "equipName": "门口开关2",
-                "equipStatus": 0,
-                "equipType": 6,
-                "frequency": 10,
-                "id": 2,
-                "joinType": 1,
-                "threshold": 1.00
-            },
-            {
-                "createTime": 1590744972000,
-                "createTimePlain": "2020-05-29 17:36:12",
-                "creator": "王",
-                "deviceId": "lumi.158d00044d3c12",
-                "effect": "[1,2,3]",
-                "equipBrand": "绿米",
-                "equipCode": "003",
-                "equipName": "冰箱温湿度传感器",
-                "equipStatus": 0,
-                "equipType": 1,
-                "frequency": 10,
-                "id": 3,
-                "joinType": 1,
-                "threshold": 1.00
-            },
-            {
-                "createTime": 1590951785000,
-                "createTimePlain": "2020-06-01 03:03:05",
-                "creator": "王",
-                "deviceId": "lumi.158d000392613e",
-                "effect": "",
-                "equipBrand": "绿米",
-                "equipCode": "004",
-                "equipName": "插座",
-                "equipStatus": 0,
-                "equipType": 7,
-                "frequency": 10,
-                "id": 4,
-                "joinType": 1,
-                "threshold": 1.00
-            },
-            {
-                "createTime": 1590951785000,
-                "createTimePlain": "2020-06-01 03:03:05",
-                "creator": "王",
-                "deviceId": "",
-                "effect": "",
-                "equipBrand": "其他",
-                "equipCode": "005",
-                "equipName": "有毒气体臭氧",
-                "equipStatus": 0,
-                "equipType": 4,
-                "frequency": 10,
-                "id": 5,
-                "joinType": 2,
-                "threshold": 1.00
-            },
-            {
-                "createTime": 1590951785000,
-                "createTimePlain": "2020-06-01 03:03:05",
-                "creator": "王",
-                "deviceId": "",
-                "effect": "",
-                "equipBrand": "其他",
-                "equipCode": "006",
-                "equipName": "有毒气体乙醇",
-                "equipStatus": 0,
-                "equipType": 5,
-                "frequency": 10,
-                "id": 6,
-                "joinType": 2,
-                "threshold": 1.00
-            },
-            {
-                "createTime": 1590951785000,
-                "createTimePlain": "2020-06-01 03:03:05",
-                "creator": "王",
-                "deviceId": "",
-                "effect": "",
-                "equipBrand": "其他",
-                "equipCode": "007",
-                "equipName": "有毒气体臭氧",
-                "equipStatus": 0,
-                "equipType": 4,
-                "frequency": 10,
-                "id": 7,
-                "joinType": 2,
-                "threshold": 1.00
-            }
-        ]
-    },
-    "desc": "成功"
-}
+{"createTime":1590951785000,"createTimePlain":"2020-06-01 03:03:05","creator":"王","deviceId":"lumi.158d0004845db6","effect":"","equipBrand":"绿米","equipCode":"001","equipName":"门口开关","equipStatus":0,"equipType":6,"frequency":10,"id":1,"joinType":1,"modbusId":0,"threshold":1.00},
+{"createTime":1590951785000,"createTimePlain":"2020-06-01 03:03:05","creator":"王","deviceId":"lumi.158d0004845db6","effect":"","equipBrand":"绿米","equipCode":"002","equipName":"门口开关2","equipStatus":0,"equipType":6,"frequency":10,"id":2,"joinType":1,"modbusId":0,"threshold":1.00},
+{"createTime":1590744972000,"createTimePlain":"2020-05-29 17:36:12","creator":"王","deviceId":"lumi.158d00044d3c12","effect":"[1,2,3]","equipBrand":"绿米","equipCode":"003","equipName":"冰箱温湿度传感器","equipStatus":0,"equipType":1,"frequency":10,"id":3,"joinType":1,"modbusId":0,"threshold":1.00},
+{"createTime":1590951785000,"createTimePlain":"2020-06-01 03:03:05","creator":"王","deviceId":"lumi.158d000392613e","effect":"","equipBrand":"绿米","equipCode":"004","equipName":"插座","equipStatus":0,"equipType":7,"frequency":10,"id":4,"joinType":1,"modbusId":0,"threshold":1.00},
+{"createTime":1590951785000,"createTimePlain":"2020-06-01 03:03:05","creator":"王","deviceId":"","effect":"","equipBrand":"其他","equipCode":"005","equipName":"有毒气体臭氧","equipStatus":3,"equipType":4,"frequency":10,"id":5,"joinType":2,"modbusId":1,"threshold":1.00},
+{"createTime":1590951785000,"createTimePlain":"2020-06-01 03:03:05","creator":"王","deviceId":"","effect":"","equipBrand":"其他","equipCode":"006","equipName":"有毒气体乙醇","equipStatus":3,"equipType":5,"frequency":10,"id":6,"joinType":2,"modbusId":2,"threshold":1.00},
+{"createTime":1590951785000,"createTimePlain":"2020-06-01 03:03:05","creator":"王","deviceId":"","effect":"","equipBrand":"其他","equipCode":"007","equipName":"有毒气体臭氧","equipStatus":0,"equipType":4,"frequency":10,"id":7,"joinType":2,"modbusId":3,"threshold":1.00},
+{"createTime":1594055502000,"createTimePlain":"2020-07-07 01:11:42","creator":"文科实验员","deviceId":"lumi.158d00045c946f","effect":"","equipBrand":"绿米湿度","equipCode":"ruiyuanshidu","equipName":"瑞园湿度","equipStatus":0,"equipType":2,"frequency":10,"id":13,"joinType":1,"modbusId":0,"threshold":30.00},
+{"createTime":1594055618000,"createTimePlain":"2020-07-07 01:13:38","creator":"文科实验员","deviceId":"lumi.158d00045c946f","effect":"","equipBrand":"绿米","equipCode":"ruiyuanyali","equipName":"瑞园压力","equipStatus":0,"equipType":3,"frequency":10,"id":14,"joinType":1,"modbusId":0,"threshold":3000.00},
+{"createTime":1594172474000,"createTimePlain":"2020-07-08 09:41:14","creator":"文科实验员","deviceId":"lumi.158d00045c946f","effect":"","equipBrand":"绿米","equipCode":"ruiyuanwendu","equipName":"瑞园温度","equipStatus":0,"equipType":1,"frequency":0,"id":15,"joinType":2,"modbusId":1123,"threshold":30.00}
