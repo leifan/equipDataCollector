@@ -7,7 +7,7 @@ def get_gateway_heart():
     SENDERIP = "192.168.1.110"
     MYPORT = 9898
     MYGROUP = '224.0.0.50'
-
+    
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
     #allow multiple sockets to use the same PORT number
     sock.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
@@ -19,7 +19,7 @@ def get_gateway_heart():
     #The address for the multicast group is the third param
     status = sock.setsockopt(socket.IPPROTO_IP,
                              socket.IP_ADD_MEMBERSHIP,
-                             socket.inet_aton(MYGROUP) + socket.inet_aton(SENDERIP));
+                             socket.inet_aton(MYGROUP) + socket.inet_aton(SENDERIP))
 
     #sock.setblocking(0)
     #ts = time.time()
