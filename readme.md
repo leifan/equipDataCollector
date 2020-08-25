@@ -8,6 +8,12 @@
    
 3、运行程序 run_mainApp.bat
 
+    启动配置 equipCfg.ini
+    关注：
+    1、本机IP
+    2、串口设置
+    3、通道数据设置
+
 
 # 通信协议 
 

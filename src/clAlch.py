@@ -1,8 +1,14 @@
 # encoding:utf-8
+
+import os
+import sys
 import time
 import datetime
-import os
-import sys, configparser
+import socket
+import json
+import struct
+import requests
+import configparser
 import logging
 from logging.handlers import RotatingFileHandler
 from threading import Thread, Event
@@ -10,13 +16,11 @@ from queue import Queue, Empty
 from collections import deque, defaultdict
 from itertools import groupby
 
+import gl
 from proto import MetaRegCls
-from get_gate_way_info import GetGateWayInfo, udp_gw
+from getLvMiInfo import GetGateWayInfo, udp_gw
 
-import socket
-import json
-import struct
-import requests
+
 
 # 采集线程N
 # 需要处理接口协议，多客户端轮询，单客户查询
@@ -35,8 +39,7 @@ class Collector(Thread):
         self.finished.set()
 
     def run(self):
-        logging.info('通道 %s 启动:\n\t %s'%(self.ch.portName(),
-                "\n\t".join(str(e) for e in self.addrs)))
+        logging.info('通道 %s 启动:\n\t %s' % (self.ch.portName(), "\n\t".join(str(e) for e in self.addrs)))
         while not self.finished.is_set():
             t0 = time.time()
             # 设置
@@ -55,17 +58,17 @@ class Collector(Thread):
                     status.append(status2)
                 
                 if len(status):
-                    for equipType,equipId,*a in self.addrs:
-                        if setDat['equipType'] == 2 and setDat['equipId'] == equipId:
+                    for equipType, equipId, *a in self.addrs:
+                        if setDat['equipType'] == gl.HT_EQUIP_TYPE_REMOTE_RELAY and setDat['equipId'] == equipId:
                             # equipType, equipId, comaddr, 功能代码,开始地址, 写入值
                             regStartAddr = 0 if 'status1' in setDat.keys() else 1 
                             ret = self.ch.setSlaveData(equipType, equipId, a[0], 15, regStartAddr, status)
                             logging.info('设置(equipType={},equipId={},addr={},value={})结果:{}'.format(equipType, equipId, a[0], status, ret))
 
             # 采集
-            for equipType,equipId,*a in self.addrs: # equipType, equipId, comaddr, 功能代码, 开始地址, 读寄存器个数
+            for equipType, equipId, *a in self.addrs: # equipType, equipId, comaddr, 功能代码, 开始地址, 读寄存器个数
                 time.sleep(self.space)
-                ret = self.ch.getSlaveData(equipType,equipId,*a)
+                ret = self.ch.getSlaveData(equipType, equipId, *a)
                 if ret['comStatus']:
                     logging.debug('采集(equipType={},equipId={})解析数据:{}'.format(equipType, equipId, ret))  
                 else:
@@ -81,10 +84,10 @@ class Collector(Thread):
             left = self.interval - (time.time() - t0)
             if left > 0.1:
                 time.sleep(left)
-            logging.debug('%s轮询用去%.3f秒'%(self.ch.portName(), self.interval-left))
+            logging.debug('%s轮询用去%.3f秒' % (self.ch.portName(), self.interval - left))
 
         self.ch.close()
-        logging.info('通道 %s 关闭'%self.ch.portName())
+        logging.info('通道 %s 关闭' % self.ch.portName())
 
 # 设备数据主动上报 线程
 class Writer(Thread):
@@ -190,13 +193,13 @@ class Writer(Thread):
             equipType = 1
             value = 0
             if 'temperature' in k:
-                equipType = 1
+                equipType = gl.HT_EQUIP_TYPE_LVMI_TEMPERATURE
                 value = k['temperature']
             elif 'humidity' in k:
-                equipType = 2
+                equipType = gl.HT_EQUIP_TYPE_LVMI_HUMIDITY
                 value = k['humidity']
             elif 'pressure' in k:   
-                equipType = 3
+                equipType = gl.HT_EQUIP_TYPE_LVMI_PRESSURE
                 value = k['pressure']
             else :
                 continue
@@ -394,7 +397,7 @@ class Recevie(Thread):
             sid =  heart_dat.get('sid')
             model = heart_dat.get('model')
             if sid and 'acpartner' not in model:
-                d = dict(dataType='LvMi', sid=sid, comStatus=1, params=heart_dat.get('params')) 
+                d = dict(dataType='LvMi', sid=sid, comStatus = gl.COM_STATUS_NORMAL, params=heart_dat.get('params')) 
                 print('*'*50)
                 print(d)
                 print('***绿米设备***'*5)
@@ -409,7 +412,7 @@ class Recevie(Thread):
             for sid in weather_sid_dat:
                 weather_sid_dat[sid] = weather_sid_dat[sid] - runtime
                 if weather_sid_dat[sid] <= 0 :
-                    d = dict(dataType='LvMi', sid=sid, comStatus=0, params=None) 
+                    d = dict(dataType='LvMi', sid=sid, comStatus = gl.COM_STATUS_ABNORMAL, params=None) 
                     self.qData.put(d) 
 
         logging.info('Recevie 结束')

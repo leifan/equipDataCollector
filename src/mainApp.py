@@ -1,5 +1,3 @@
-# encoding: utf-8
-
 import sys, os, configparser
 from base64 import b64encode, b64decode
 import time, io, traceback
@@ -8,10 +6,9 @@ from logging.handlers import RotatingFileHandler
 
 from PyQt5 import QtWidgets, QtCore, QtGui
 from PyQt5.Qt import Qt
-
-from clAlch import HtDac
 import app_rc
 
+from clAlch import HtDac
 
 class Config:
     default_data = {
