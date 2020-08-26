@@ -32,11 +32,11 @@ class MetaRegCls(type):
     def getClass(proto):
         return MetaRegCls.protoClsReg.get(proto, None)
 
-# rtu-modbus
-class modbusRtuChannel(metaclass=MetaRegCls):
+# modbusChannel
+class modbusChannel(metaclass=MetaRegCls):
     def __init__(self, portName, rtutimeout):
         try:
-            se = serial.Serial(port=portName, baudrate=self.baudrate, parity=self.parity, timeout=rtutimeout)
+            se = serial.Serial(port = portName, baudrate = self.baudrate, parity = self.parity, timeout = rtutimeout)
             logging.disable(logging.ERROR) # temporarily
             self.master = tkRtu.RtuMaster(se)
             logging.disable(logging.NOTSET)
@@ -61,7 +61,7 @@ class modbusRtuChannel(metaclass=MetaRegCls):
             self.master.close()
 
 # 协议适配设备 HT_EQUIP_TYPE_JDRK_TEMPERATURE 、HT_EQUIP_TYPE_REMOTE_RELAY、HT_EQUIP_TYPE_MICRO_PRESSURE
-class ModbusRtuCh(modbusRtuChannel):
+class ModbusRtuCh(modbusChannel):
     protoType = 'mobus_rtu'
     baudrate, parity = 9600, 'N'
 
@@ -70,43 +70,45 @@ class ModbusRtuCh(modbusRtuChannel):
             r = None
             '''
             有毒气体qData一体记录数据
-            通讯正常数据 {dataType='ToxicGas','equipType'=3, 'equipId'=5, 'modbusaddr'=1 ,'comStatus'=1,'concentration'= 0.0}
-            通讯故障数据 {dataType='ToxicGas','equipType'=3, 'equipId'=6, 'modbusaddr'=2 ,'comStatus'=0}
+            通讯正常数据 {dataType='serial_device_data','equipType'=3, 'equipId'=5, 'modbusaddr'=1 ,'comStatus'=1,'value'= 0.0}
+            通讯故障数据 {dataType='serial_device_data','equipType'=3, 'equipId'=6, 'modbusaddr'=2 ,'comStatus'=0}
             '''
-            ret_dict = dict(equipType = equipType, equipId = equipId, modbusaddr = slaveId)
+            ret_dict = dict(dataType = 'serial_device_data',equipType = equipType, equipId = equipId, modbusaddr = slaveId)
 
             if equipType == gl.HT_EQUIP_TYPE_JDRK_TEMPERATURE: #温湿度
                 # execute(slave,功能代码,开始地址,quantity_of_x=0,output_value=0,data_format="",指定长度=-1)
                 r = self.master.execute(slaveId, cmd, addr, num, data_format=">2h")
                 # 40001 湿度 humidity 转换系数 0.1  
                 # 40002 温度 temperature 转换系数 0.1 
-                rd = dict(dataType='JDRK_TEMPERATURE', comStatus = gl.COM_STATUS_NORMAL, humidity = r[0]/10., temperature = r[1]/10.)  
+                rd = dict(comStatus = gl.COM_STATUS_NORMAL, humidity = r[0]/10., temperature = r[1]/10.)  
                 ret_dict.update(rd)
             elif equipType == gl.HT_EQUIP_TYPE_REMOTE_RELAY: # 远程继电器
                 r = self.master.execute(slaveId, cmd, addr, num)
                 # 获取所有开关状态 10 01 00 00 00 08 3E 8d 响应 10 01 01 03 14 B5 
                 # switchStatus1 switchStatus2
                 # r = (1, 1, 0, 0, 0, 0, 0, 0)
-                rd = dict(dataType='REMOTE_RELAY', comStatus = gl.COM_STATUS_NORMAL, switchStatus1 = r[0], switchStatus2 = r[1])
+                rd = dict(comStatus = gl.COM_STATUS_NORMAL, switchStatus1 = r[0], switchStatus2 = r[1])
                 ret_dict.update(rd)
             elif equipType == gl.HT_EQUIP_TYPE_MICRO_PRESSURE: # 微差压传感器
                 r = self.master.execute(slaveId, cmd, addr, num)
                 # 电流范围 4-20ma 测量范围 -100-100pa  
-                # 数据转换公式 d/3900*(20-4)+4 3900对应20ma的值
+                # 数据转换公式 d/3900*(20-4)+4 3900对应20ma的值v
                 v = r[0] / 3900 * (20 - 4) + 4 # 计算对应电流
                 pressure = (v - 4) * 200 / 20 - 100
-                rd = dict(dataType='ModbusRtuCh', modbusaddr=slaveId, pressure = pressure)
+                rd = dict(comStatus = gl.COM_STATUS_NORMAL, value = pressure)
                 ret_dict.update(rd)
-            logging.debug('采集(equipType={},equipId={})原始数据:{}'.format(equipType, equipId, r))
+                logging.debug('计算r={}数据:v={}，pressure={}'.format(r[0], v, pressure))
 
         except Exception as e:
-            d = dict(dataType='',comStatus = gl.COM_STATUS_ABNORMAL)
+            dinfo = "[{},equipType={},equipId={},slaveId={},cmd={},addr={},num={}]".format(self.portName(), equipType, equipId, slaveId, cmd, addr, num)
+            logging.debug("{} err:{}".format(dinfo, e))
+            d = dict(comStatus = gl.COM_STATUS_ABNORMAL)
             ret_dict.update(d)
-            logging.warning(str(e))
-            logging.warning('采集(equipType={},equipId={},modbusaddr={})异常.'.format(equipType, equipId, slaveId))
+
         return ret_dict
 
     def setSlaveData(self, equipType, equipId, slaveId, cmd, addr, value):
+        logging.debug('设置 equipType={},equipId={},addr={},value={}'.format(equipType, equipId, addr, value))
         try:
             if equipType == gl.HT_EQUIP_TYPE_REMOTE_RELAY: # 继电器
                 # execute(slave,功能代码,开始地址,quantity_of_x=0,output_value=0,data_format="",指定长度=-1)
@@ -118,8 +120,7 @@ class ModbusRtuCh(modbusRtuChannel):
                 # 同时控制 10 0F 00 00 00 02 01 03 5e 56
             return r
         except Exception as e:
-            logging.warning(str(e))
-            logging.warning('设置(equipType={},equipId={},addr={},value={})异常.'.format(equipType, equipId, addr, value))
+            logging.debug(str(e))
         return None
 
 # 协议适配设备 HT_EQUIP_TYPE_HX_OZONE、HT_EQUIP_TYPE_HX_ETHANOL
@@ -132,7 +133,7 @@ class ModbusToxicGasChannel(metaclass=MetaRegCls):
 
     def __init__(self, portName, timeout):
         try:
-            self.master = serial.Serial(port=portName, baudrate=self.baudrate, parity=self.parity, timeout=timeout)
+            self.master = serial.Serial(port=portName, baudrate=self.baudrate, parity=self.parity, timeout = timeout)
             self.caches = {} 
             self.msg_err = ""
         except Exception as e:
@@ -198,8 +199,8 @@ class ModbusToxicGasChannel(metaclass=MetaRegCls):
         return ret
 
     def getSlaveData(self, equipType, equipId, slaveId, cmd, addr, num):
-        ret_dict = dict(dataType='ToxicGas', equipType = equipType, equipId = equipId, modbusaddr = slaveId)
         try:
+            ret_dict = dict(dataType='serial_device_data', equipType = equipType, equipId = equipId, modbusaddr = slaveId)
             dinfo = "[{}, {}]".format(self.portName(), slaveId)
             # 1、刷新精度 （3分钟）
             units = 2    # 气体浓度的小数位数，默认2位小数
@@ -217,14 +218,15 @@ class ModbusToxicGasChannel(metaclass=MetaRegCls):
                 fv = float(dat)
                 if units >= 0 and units <= 3:
                     fv /= pow(10, units)
-                d = dict(comStatus = gl.COM_STATUS_NORMAL, concentration=fv)
+                d = dict(comStatus = gl.COM_STATUS_NORMAL, value = fv)
                 ret_dict.update(d)
             else:
                 raise Exception("有毒气体获取浓度失败: " + dinfo)
         except Exception as e:
+            logging.debug(str(e))
             d = dict(comStatus = gl.COM_STATUS_ABNORMAL)
             ret_dict.update(d)
-            logging.warning(str(e))
+
         return ret_dict
 
     def portName(self):

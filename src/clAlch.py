@@ -27,6 +27,7 @@ from getLvMiInfo import GetGateWayInfo, udp_gw
 class Collector(Thread):
     def __init__(self, qData, qSetData, ch, addrs, period, space=0.05):
         super().__init__(daemon=True)
+        self.name = "channel{}_Collector_Thread".format(ch)
         self.finished = Event()
         self.qData = qData
         self.qSetData = qSetData
@@ -69,15 +70,15 @@ class Collector(Thread):
             for equipType, equipId, *a in self.addrs: # equipType, equipId, comaddr, 功能代码, 开始地址, 读寄存器个数
                 time.sleep(self.space)
                 ret = self.ch.getSlaveData(equipType, equipId, *a)
-                if ret['comStatus']:
+                if ret['comStatus'] == gl.COM_STATUS_NORMAL:
                     logging.debug('采集(equipType={},equipId={})解析数据:{}'.format(equipType, equipId, ret))  
                 else:
-                    logging.warning('{} {} {}'.format(self.ch.portName(), '通信故障', a))
+                    logging.warning('{} 通信故障:equipType={}, equipId={} {}'.format(self.ch.portName(), equipType, equipId, a))
                 
                 '''
                 有毒气体qData一体记录数据
-                通讯正常数据 {dataType='ToxicGas','equipType'=3, 'equipId'=5, 'modbusaddr'=1 ,'comStatus'=1,'concentration'= 0.0}
-                通讯故障数据 {dataType='ToxicGas','equipType'=3, 'equipId'=6, 'modbusaddr'=2 ,'comStatus'=0}
+                通讯正常数据 {dataType='serial_device_data','equipType'=3, 'equipId'=5, 'modbusaddr'=1 ,'comStatus'=1,'value'= 0.0}
+                通讯故障数据 {dataType='serial_device_data','equipType'=3, 'equipId'=6, 'modbusaddr'=2 ,'comStatus'=0}
                 '''
                 self.qData.put(ret)
 
@@ -93,11 +94,11 @@ class Collector(Thread):
 class Writer(Thread):
     def __init__(self, qData, web_cfg_info):
         super().__init__(daemon=True)
+        self.name = "Writer_Thread"
         self.finished = Event()
         self.qData = qData
         self.web_cfg_info = web_cfg_info
         self.interval = 2.0
-        self.concentration = 0
         self.runSecondTime = 0
         self.equipList = [] # web获取设备列表
         self.caches = {} # 缓存设备数据
@@ -135,20 +136,23 @@ class Writer(Thread):
             logging.info('获取sessionId={}'.format(sessionId))
         except Exception as e:
             logging.warning(str(e), exc_info=True)
+            self.web_cfg_info['sessionId'] = None
 
         return None
 
-    def GetToxicGasEquipData(self, dat):
+    def GetSerialEquipData(self, dat):
         '''
-        获取设备数据
-        1、采集的有毒气体设备数据
+        获取设备数据value
+        1、采集串口设备数据
         2、web设备列表匹配待发送数据
+
+        dat数据格式: {'equipType'=3, 'equipId'=5, 'modbusaddr'=1 ,'comStatus'=1,'value'= 0.0}
+
         '''
-        if not dat or 'ToxicGas' != dat['dataType'] : # 筛选取有毒气体相关数据
+        if not dat or 'serial_device_data' != dat['dataType'] : # 筛选取串口设备相关数据
             return None
         try:
-            # qData {'equipType'=3, 'equipId'=5, 'modbusaddr'=1 ,'comStatus'=1,'concentration'= 0.0}
-            equip_info = '{}_{}_{}'.format(dat.get('equipType'), dat.get('equipId'), dat.get('modbusaddr'))
+            
             # 匹配web获取的设备列表
             for s in self.equipList: 
                 if dat['equipType'] == s['equipType'] and dat['equipId'] == s['id']:
@@ -160,9 +164,11 @@ class Writer(Thread):
                         "comStatus": dat['comStatus'],
                         }
 
-                    if 'concentration' in dat :
-                        d.update({"value": dat['concentration']})
+                    if 'value' in dat :
+                        d.update({"value": dat['value']})
                     
+                    # 缓存设备数据 用于判断是否变化
+                    equip_info = '{}_{}_{}'.format(dat.get('equipType'), dat.get('equipId'), dat.get('modbusaddr'))
                     cdat = self.caches.setdefault(equip_info, {})
                     # cache is a dict of key('4_5_1') with ( d ) elements
                     # self.caches 缓存设备数据 上报条件5分钟或者数据变化
@@ -286,6 +292,9 @@ class Writer(Thread):
             "desc": "成功"
         }
         '''
+        if  not self.web_cfg_info.get('sessionId'):
+            return []
+
         equipList = []
         try:
             url = self.web_cfg_info['web_get_toxic_equip_url']
@@ -299,8 +308,12 @@ class Writer(Thread):
             r = requests.post(url=url, headers=headers, params=params)
             r2 = r.json()
             equipList = r2['data']['list'] or []
-            print(equipList)
-            logging.info('获取设备{}个 结果:{} {}'.format(len(equipList), r, r.content.decode('utf-8')))
+            logging.debug('获取设备{}个 结果:{} {}'.format(len(equipList), r, r.content.decode('utf-8')))
+            
+            # 设备列表有变化，打印设备列表
+            if equipList != self.equipList:
+                logging.info('获取设备{}个 结果:{} {}'.format(len(equipList), r, r.content.decode('utf-8')))
+
         except Exception as e:
             logging.warning(str(e), exc_info=True)
 
@@ -311,8 +324,8 @@ class Writer(Thread):
     def run(self):
         '''
         任务1：每10分钟获取sessionId
-        任务2：每5分钟获取有毒气体设备列表
-        任务3：每5分钟上报有毒气体数据 上报条件5分钟或者数据变化
+        任务2：每5分钟获取设备列表
+        任务3：每5分钟上报设备数据 上报条件5分钟或者数据变化
         '''
         while not self.finished.is_set():
             try:
@@ -330,7 +343,7 @@ class Writer(Thread):
                     equipDat = {}
                     while not self.qData.empty(): 
                         dat = self.qData.get()
-                        equipDat.update(self.GetToxicGasEquipData(dat) or {}) # 获取有毒气体数据
+                        equipDat.update(self.GetSerialEquipData(dat) or {}) # 获取RTU设备数据
                         equipDat.update(self.GetLvMiEquipData(dat) or {}) # 获取绿米设备数据
 
                     if len(equipDat):
@@ -347,6 +360,7 @@ class Writer(Thread):
 class Recevie(Thread):
     def __init__(self, qData, web_cfg_info):
         super().__init__(daemon=True)
+        self.name = "Writer_Thread"
         self.finished = Event()
         self.qData = qData
         self.interval = 2.0
@@ -564,10 +578,11 @@ class HtDac():
         '''
         实现配置变化时动态修改参数
         '''
-        if not all(t.is_alive() for t in self.threads):
-            logging.warn('存在死亡线程')
+        for t in self.threads:
+            if not t.is_alive():
+                logging.warning('线程 {} 已阵亡！'.format(t.name))
         
         if len(self.msg_err):
-            logging.warn('{}'.format(self.msg_err))
+            logging.warning('{}'.format(self.msg_err))
 
         return True
