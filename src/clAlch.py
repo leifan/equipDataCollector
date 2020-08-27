@@ -21,7 +21,6 @@ from proto import MetaRegCls
 from getLvMiInfo import GetGateWayInfo, udp_gw
 
 
-
 # 采集线程N
 # 需要处理接口协议，多客户端轮询，单客户查询
 class Collector(Thread):
@@ -148,6 +147,11 @@ class Writer(Thread):
 
         dat数据格式: {'equipType'=3, 'equipId'=5, 'modbusaddr'=1 ,'comStatus'=1,'value'= 0.0}
 
+        返回值：
+        None :未解析到设备数据
+        数据字典 ： {equip_info : dat}  
+                    equip_info:设备信息如 '1_2_3', equipType_equipId_modbusaddr
+                    dat:设备数据如 {"equipType":4,:equipCode":"005","appId":"00001", "id":1, "comStatus":1, "value":10}
         '''
         if not dat or 'serial_device_data' != dat['dataType'] : # 筛选取串口设备相关数据
             return None
@@ -182,6 +186,12 @@ class Writer(Thread):
     def GetLvMiEquipData(self, dat):
         '''
         获取绿米相关设备数据
+
+        返回值：
+        None :未解析到设备数据
+        数据字典 ： {equip_info : dat}  
+                    equip_info:设备信息如 '1_2_3', equipType_equipId_modbusaddr
+                    dat:设备数据如 {"equipType":4,:equipCode":"005","appId":"00001", "id":1, "comStatus":1, "value":10}
         '''
         if not dat or 'LvMi' != dat['dataType']: # 筛选绿米设备相关数据
             return None
@@ -317,9 +327,55 @@ class Writer(Thread):
         except Exception as e:
             logging.warning(str(e), exc_info=True)
 
-        # 更新有毒气体设备列表
+        # 更新设备列表
         self.equipList = [x for x in equipList]
         return self.equipList
+
+    def GetChannelCfg(self, channel_cfg=None):
+        '''
+        获取通道配置列表
+
+            ;modbus_ascii_toxic_gas 接有毒气体传
+            ;串口,协议类型,查询周期,None,超时时间,延迟
+            ;时间单位按ms设置
+            channel_1 = COM6,modbus_ascii_toxic_gas,3000,None,1000,200
+
+            ;mobus_rtu 接微差压传感器
+            ;串口,协议类型,查询周期,None,超时时间,延迟
+            channel_2 = COM8,mobus_rtu,3000,None,1000,200
+
+            设备类型为 HT_EQUIP_TYPE_HX_OZONE、HT_EQUIP_TYPE_HX_ETHANOL 配置通道1
+            设备类型为 HT_EQUIP_TYPE_MICRO_PRESSURE 配置为通道2
+            
+            ;有毒气体 modbus_ascii_toxic_gas 
+            ;channel, equipType, equipId, comaddr, 功能代码,开始地址,读寄存器个数(代码硬编码采集1个)
+            equip_1 = 1,4,1,1,3,0,1
+
+            ;微差压传感器 mobus_rtu 
+            ;微差压实际是4-20,现场接线DAQM-4206A的通道1-通道4，设备地址1, 通道0-通道8对应寄存器地址1-8
+            ;channel, equipType, equipId, comaddr, 功能代码,开始地址,读寄存器个数(代码硬编码采集1个)
+            equip_5 = 2,9,1,1,3,2,1
+
+        返回值：
+            [ 
+                [COM1,rtu_modbus,2500,[[equipType, equipId, comaddr, 功能代码,开始地址,读寄存器个数],],超时时间,延迟],
+            ]
+            [['COM6', 'modbus_ascii_toxic_gas', 3000, [[4, 1, 1, 3, 0, 1]], 1000, 200], 
+             ['COM8', 'mobus_rtu', 3000, [[9, 1, 1, 3, 2, 1], [9, 2, 1, 3, 3, 1], [9, 3, 1, 3, 4, 1], [9, 4, 1, 3, 5, 1]], 1000, 200]]
+        '''
+        for c in channel_cfg:
+            addrs = c[3][0]
+            c[3] = []
+            for e in self.equipList:
+                if (c[1] == 'modbus_ascii_toxic_gas' and e['equipType'] in [gl.HT_EQUIP_TYPE_HX_ETHANOL, gl.HT_EQUIP_TYPE_HX_OZONE]) or \
+                   (c[1] == 'mobus_rtu' and e['equipType'] in [gl.HT_EQUIP_TYPE_MICRO_PRESSURE]) :
+                        addrs[1] = e['id']       # equipId
+                        addrs[2] = e['modbusId'] # comaddr
+                        #c[5] = e['frequency']*1000 # 采集频率
+                        c[3].append(addrs[:])
+                        #logging.debug('添加设备信息{}'.format(c))
+
+        return channel_cfg
 
     def run(self):
         '''
@@ -456,6 +512,14 @@ class EquipCfg:
         return self.get_channel(), self.get_web_cfg()
 
     def get_channel(self):
+        '''
+        获取通道配置信息
+
+        返回值
+        [
+            [COM1,rtu_modbus,2500,[equipType, equipId, comaddr, 功能代码,开始地址,读寄存器个数],100,200],
+        ]
+        '''
         channels = []
         try:
             num = self.get_option('channel_cfg', 'channel_max_num')
@@ -470,7 +534,7 @@ class EquipCfg:
             logging.warning(str(e), exc_info=True)
         return channels
     
-    def get_equipinfo(self,channelIndex):
+    def get_equipinfo(self, channelIndex):
         equipinfo = []
         try:
             num = self.get_option('equip_cfg', 'equip_num')
@@ -507,31 +571,48 @@ class EquipCfg:
             logging.warning(str(e), exc_info=True)
         return web_cfg_info       
 
-# 获取设备基本信息
-def getBasic(engine, Base):
+
+def getBasic(thread=None, Base=False):
+    '''
+    获取设备基本信息
+        Base = False 配置数据来源配置文件
+        Base = True  配置数来源Web
+    返回值：
+        channel_cfg, web_cfg
+    '''
+    channel_cfg = []
+    web_cfg = {}
     try:
         cfg = EquipCfg('equipCfg.ini')
-        return  cfg.get_all_info()
+        channel_cfg, web_cfg = cfg.get_all_info()
+        if Base and thread: # 配置数来源Web
+            if thread.is_alive():
+                thread.GetChannelCfg(channel_cfg)
+                logging.debug('获取设备信息：{}'.format(channel_cfg))
+
     except Exception as e:
         logging.warning(str(e), exc_info=False)
 
-    return [], None
+    return channel_cfg, web_cfg
+
 
 class HtDac():
     def __init__(self, info):
         self.engine = info # (host, port, com, timeout)
-        self.hBase = None
         self.threads = []
+        self.writerThread = None  
+        self.recevieThread = None 
         self.qData = None
         self.qSetData = None
         self.msg_err = []
+        self.channel_cfg_info = []
 
     def startDac(self):
 
         print(self.engine) # 打印窗体设置参数
 
         # 获取配置信息
-        channel_cfg_info, web_cfg_info = getBasic(self.engine, self.hBase)
+        channel_cfg_info, web_cfg_info = getBasic(None, False)
 
         if not channel_cfg_info or self.threads: #不可重复执行
             return [], None, None
@@ -542,14 +623,14 @@ class HtDac():
 
         # web所有线程, 获取设备列表线程优先启动
         if web_cfg_info:
-            writer = Writer(qData, web_cfg_info)
-            threads.append(writer)
-
-            recevie = Recevie(qData, web_cfg_info) # 获取绿米网关相关信息
-            threads.append(recevie)
+            self.writerThread = Writer(qData, web_cfg_info)
+            self.writerThread.start()
+            
+            self.recevieThread = Recevie(qData, web_cfg_info) # 获取绿米网关相关信息
+            self.recevieThread.start()
 
         # 设备采集所有线程
-        for p in channel_cfg_info: 
+        for p in channel_cfg_info:  # channel_cfg_info = [[COM1,rtu_modbus,2500,[equipType, equipId, comaddr, 功能代码,开始地址,读寄存器个数],100,200],]
             chCls = MetaRegCls.getClass(p[1])
             if chCls and p[3]:
                 ch = chCls(p[0], p[4]/1000.) # 串口， 超时时间
@@ -581,6 +662,45 @@ class HtDac():
         for t in self.threads:
             if not t.is_alive():
                 logging.warning('线程 {} 已阵亡！'.format(t.name))
+
+        # 获取配置信息
+        channel_cfg_info, web_cfg_info = getBasic(self.writerThread, True)
+
+        #关闭配置中停用的通道
+        keeped = []
+        for t in self.threads:
+            for newc in channel_cfg_info:
+                if (t.ch.portName().lower() == newc[0].lower() and
+                    t.ch.protoType.lower() == newc[1].lower()):
+
+                    keeped.append(t)
+                    break
+            else:
+                t.stop()
+                t.join(5.0)
+        self.threads = keeped
+
+        # 设备采集所有线程
+        for p in channel_cfg_info:  # channel_cfg_info = [[COM1,rtu_modbus,2500,[equipType, equipId, comaddr, 功能代码,开始地址,读寄存器个数],100,200],]
+            for t in self.threads:
+                if t.ch.portName().lower() == p[0].lower():
+                    if t.addrs != p[3]:
+                        t.addrs = p[3]
+                    if t.interval * 1000 != p[2]:
+                        t.interval = p[2]/1000.
+
+                    break
+            else:
+                chCls = MetaRegCls.getClass(p[1])
+                if chCls and p[3]:
+                    ch = chCls(p[0], p[4]/1000.) # 串口， 超时时间
+                    if ch.master:
+                        cltor = Collector(self.qData, self.qSetData, ch, p[3], p[2]/1000., p[5]/1000.) # Collector(采集数据, 通道, 地址信息， 间隔时间，延迟时间)   
+                        cltor.start()
+                        self.threads.append(cltor)
+                    else:
+                        self.msg_err.append(ch.msg_err)
+
         
         if len(self.msg_err):
             logging.warning('{}'.format(self.msg_err))
