@@ -369,6 +369,7 @@ class Writer(Thread):
             for e in self.equipList:
                 if (c[1] == 'modbus_ascii_toxic_gas' and e['equipType'] in [gl.HT_EQUIP_TYPE_HX_ETHANOL, gl.HT_EQUIP_TYPE_HX_OZONE]) or \
                    (c[1] == 'mobus_rtu' and e['equipType'] in [gl.HT_EQUIP_TYPE_MICRO_PRESSURE]) :
+                        addrs[0] = e['equipType'] # equipType
                         addrs[1] = e['id']       # equipId
                         addrs[2] = e['modbusId'] # comaddr
                         #c[5] = e['frequency']*1000 # 采集频率
@@ -654,6 +655,12 @@ class HtDac():
         for t in self.threads: t.stop()
         for t in self.threads: t.join(t.interval)
         self.threads = []
+        self.writerThread.stop()
+        self.writerThread.stop(self.writerThread.interval)
+        self.writerThread = None  
+        self.recevieThread.stop()
+        self.recevieThread.stop(self.recevieThread.interval)
+        self.recevieThread = None 
 
     def monitor(self):
         '''
@@ -670,12 +677,13 @@ class HtDac():
         keeped = []
         for t in self.threads:
             for newc in channel_cfg_info:
-                if (t.ch.portName().lower() == newc[0].lower() and
-                    t.ch.protoType.lower() == newc[1].lower()):
+                if (t.ch.portName().lower() == newc[0].lower()) : # and
+                    #t.ch.protoType.lower() == newc[1].lower()): # 通道存在多协议采集，无需判断协议是否一致
 
                     keeped.append(t)
                     break
             else:
+                logging.warning('线程 {} 强制停止。通道 {}'.format(t.name, t.ch.portName()))
                 t.stop()
                 t.join(5.0)
         self.threads = keeped
@@ -690,16 +698,16 @@ class HtDac():
                         t.interval = p[2]/1000.
 
                     break
-            else:
-                chCls = MetaRegCls.getClass(p[1])
-                if chCls and p[3]:
-                    ch = chCls(p[0], p[4]/1000.) # 串口， 超时时间
-                    if ch.master:
-                        cltor = Collector(self.qData, self.qSetData, ch, p[3], p[2]/1000., p[5]/1000.) # Collector(采集数据, 通道, 地址信息， 间隔时间，延迟时间)   
-                        cltor.start()
-                        self.threads.append(cltor)
-                    else:
-                        self.msg_err.append(ch.msg_err)
+                else:
+                    chCls = MetaRegCls.getClass(p[1])
+                    if chCls and p[3]:
+                        ch = chCls(p[0], p[4]/1000.) # 串口， 超时时间
+                        if ch.master:
+                            cltor = Collector(self.qData, self.qSetData, ch, p[3], p[2]/1000., p[5]/1000.) # Collector(采集数据, 通道, 地址信息， 间隔时间，延迟时间)   
+                            cltor.start()
+                            self.threads.append(cltor)
+                        else:
+                            self.msg_err.append(ch.msg_err)
 
         
         if len(self.msg_err):
