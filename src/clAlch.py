@@ -130,7 +130,8 @@ class Writer(Thread):
                     }
             r = requests.get(url=url, params=params)
             d = r.json()
-            sessionId = d['data'].get('sessionId')
+            dat = d.get('data') or {}
+            sessionId = dat.get('sessionId')
             if sessionId:
                 self.web_cfg_info['sessionId'] = sessionId
             logging.info('获取sessionId={}'.format(sessionId))
