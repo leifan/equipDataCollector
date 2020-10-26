@@ -116,7 +116,7 @@ class MainWindow(QtWidgets.QDialog):
         self.startCl()
 
         self.timer = QtCore.QTimer()
-        self.timer.setInterval(5*1000)
+        self.timer.setInterval(10*1000)
         self.timer.start()
         self.timer.timeout.connect(self.monitorWorkers)
 
@@ -308,14 +308,11 @@ def main(args):
     log_filename = os.path.join(os.path.dirname(__file__), 'run_log.log')
     fHandler = RotatingFileHandler(log_filename, maxBytes=1024*1024*6, encoding='cp936')
     fHandler.setFormatter(formatter)
-    fHandler.setLevel(logging.INFO)
+    #fHandler.setLevel(logging.INFO)
+    fHandler.setLevel(logging.DEBUG)
     logger.addHandler(fHandler)
 
-    #stdHandler = logging.StreamHandler()
-    #stdHandler.setLevel(logging.DEBUG)
-    #logger.addHandler(stdHandler)
-
-    logger.setLevel(logging.DEBUG)
+    logger.setLevel(logging.INFO)
 
     dlg.show()
     sys.exit(app.exec_())

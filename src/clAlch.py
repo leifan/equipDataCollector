@@ -130,8 +130,9 @@ class Writer(Thread):
                     }
             r = requests.get(url=url, params=params)
             d = r.json()
-            sessionId = d['data']['sessionId']
-            self.web_cfg_info['sessionId'] = sessionId
+            sessionId = d['data'].get('sessionId')
+            if sessionId:
+                self.web_cfg_info['sessionId'] = sessionId
             logging.info('获取sessionId={}'.format(sessionId))
         except Exception as e:
             logging.warning(str(e), exc_info=True)
@@ -352,7 +353,7 @@ class Writer(Thread):
             equip_1 = 1,4,1,1,3,0,1
 
             ;微差压传感器 mobus_rtu 
-            ;微差压实际是4-20,现场接线DAQM-4206A的通道1-通道4，设备地址1, 通道0-通道8对应寄存器地址1-8
+            ;微差压实际是4-20,现场接线DAQM-4206A的通道1-通道4，设备地址1, 通道0-通道7对应寄存器地址1-8
             ;channel, equipType, equipId, comaddr, 功能代码,开始地址,读寄存器个数(代码硬编码采集1个)
             equip_5 = 2,9,1,1,3,2,1
 
@@ -367,14 +368,22 @@ class Writer(Thread):
             addrs = c[3][0]
             c[3] = []
             for e in self.equipList:
-                if (c[1] == 'modbus_ascii_toxic_gas' and e['equipType'] in [gl.HT_EQUIP_TYPE_HX_ETHANOL, gl.HT_EQUIP_TYPE_HX_OZONE]) or \
-                   (c[1] == 'mobus_rtu' and e['equipType'] in [gl.HT_EQUIP_TYPE_MICRO_PRESSURE]) :
-                        addrs[0] = e['equipType'] # equipType
-                        addrs[1] = e['id']       # equipId
-                        addrs[2] = e['modbusId'] # comaddr
-                        #c[5] = e['frequency']*1000 # 采集频率
-                        c[3].append(addrs[:])
-                        #logging.debug('添加设备信息{}'.format(c))
+                if (c[1] == 'modbus_ascii_toxic_gas' and e['equipType'] in [gl.HT_EQUIP_TYPE_HX_ETHANOL, gl.HT_EQUIP_TYPE_HX_OZONE]) :
+                    addrs[0] = e['equipType'] # equipType
+                    addrs[1] = e['id']       # equipId
+                    addrs[2] = e['modbusId'] # comaddr
+                    #c[5] = e['frequency']*1000 # 采集频率
+                    c[3].append(addrs[:])
+             
+                elif (c[1] == 'mobus_rtu' and e['equipType'] in [gl.HT_EQUIP_TYPE_MICRO_PRESSURE]) :
+                    # 微差压 modbus地址公用，modbus地址表示通道地址
+                    addrs[0] = e['equipType'] # equipType
+                    addrs[1] = e['id']       # equipId
+                    # addrs[2] = e['modbusId'] # comaddr
+                    addrs[4] = e['modbusId'] + 1 # 开始地址 现场接线DAQM-4206A的通道1-通道4，设备地址1, 通道0-通道7对应寄存器地址1-8
+                    #c[5] = e['frequency']*1000 # 采集频率
+                    c[3].append(addrs[:])
+                    #logging.debug('添加设备信息{}'.format(c))
 
         return channel_cfg
 
@@ -679,13 +688,12 @@ class HtDac():
             for newc in channel_cfg_info:
                 if (t.ch.portName().lower() == newc[0].lower()) : # and
                     #t.ch.protoType.lower() == newc[1].lower()): # 通道存在多协议采集，无需判断协议是否一致
-
                     keeped.append(t)
                     break
             else:
                 logging.warning('线程 {} 强制停止。通道 {}'.format(t.name, t.ch.portName()))
                 t.stop()
-                t.join(5.0)
+                t.join(0.5)
         self.threads = keeped
 
         # 设备采集所有线程
@@ -698,16 +706,16 @@ class HtDac():
                         t.interval = p[2]/1000.
 
                     break
-                else:
-                    chCls = MetaRegCls.getClass(p[1])
-                    if chCls and p[3]:
-                        ch = chCls(p[0], p[4]/1000.) # 串口， 超时时间
-                        if ch.master:
-                            cltor = Collector(self.qData, self.qSetData, ch, p[3], p[2]/1000., p[5]/1000.) # Collector(采集数据, 通道, 地址信息， 间隔时间，延迟时间)   
-                            cltor.start()
-                            self.threads.append(cltor)
-                        else:
-                            self.msg_err.append(ch.msg_err)
+            else:
+                chCls = MetaRegCls.getClass(p[1])
+                if chCls and p[3]:
+                    ch = chCls(p[0], p[4]/1000.) # 串口， 超时时间
+                    if ch.master:
+                        cltor = Collector(self.qData, self.qSetData, ch, p[3], p[2]/1000., p[5]/1000.) # Collector(采集数据, 通道, 地址信息， 间隔时间，延迟时间)   
+                        cltor.start()
+                        self.threads.append(cltor)
+                    else:
+                        self.msg_err.append(ch.msg_err)
 
         
         if len(self.msg_err):

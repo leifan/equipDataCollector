@@ -32,14 +32,15 @@ class MetaRegCls(type):
     def getClass(proto):
         return MetaRegCls.protoClsReg.get(proto, None)
 
-# modbusChannel
-class modbusChannel(metaclass=MetaRegCls):
+# 协议适配设备 HT_EQUIP_TYPE_JDRK_TEMPERATURE 、HT_EQUIP_TYPE_REMOTE_RELAY、HT_EQUIP_TYPE_MICRO_PRESSURE
+class ModbusRtuCh(metaclass=MetaRegCls):
+    protoType = 'mobus_rtu'
+    baudrate, parity = 9600, 'N'
+
     def __init__(self, portName, rtutimeout):
         try:
-            se = serial.Serial(port = portName, baudrate = self.baudrate, parity = self.parity, timeout = rtutimeout)
-            logging.disable(logging.ERROR) # temporarily
+            se = serial.Serial(port = portName, baudrate = self.baudrate, parity = self.parity, stopbits = 1, timeout = rtutimeout)
             self.master = tkRtu.RtuMaster(se)
-            logging.disable(logging.NOTSET)
             self.master.set_timeout(rtutimeout)
             self.msg_err = ""
         except Exception as e:
@@ -47,23 +48,8 @@ class modbusChannel(metaclass=MetaRegCls):
             self.msg_err = e
             logging.warning('%s Open failed, %s'%(portName, e))
 
-    def getSlaveData(self, equipType, equipID, slaveId, cmd, addr, num):
-        return None
-
-    def setSlaveData(self, equipType, equipID, slaveId, cmd, addr, value):
-        return None
-
     def portName(self):
         return self.master._serial.name if self.master else ""
-
-    def close(self):
-        if self.master:
-            self.master.close()
-
-# 协议适配设备 HT_EQUIP_TYPE_JDRK_TEMPERATURE 、HT_EQUIP_TYPE_REMOTE_RELAY、HT_EQUIP_TYPE_MICRO_PRESSURE
-class ModbusRtuCh(modbusChannel):
-    protoType = 'mobus_rtu'
-    baudrate, parity = 9600, 'N'
 
     def getSlaveData(self, equipType, equipId, slaveId, cmd, addr, num):
         try:
@@ -122,6 +108,10 @@ class ModbusRtuCh(modbusChannel):
         except Exception as e:
             logging.debug(str(e))
         return None
+    
+    def close(self):
+        if self.master:
+            self.master.close()
 
 # 协议适配设备 HT_EQUIP_TYPE_HX_OZONE、HT_EQUIP_TYPE_HX_ETHANOL
 class ModbusToxicGasChannel(metaclass=MetaRegCls):
@@ -133,7 +123,7 @@ class ModbusToxicGasChannel(metaclass=MetaRegCls):
 
     def __init__(self, portName, timeout):
         try:
-            self.master = serial.Serial(port=portName, baudrate=self.baudrate, parity=self.parity, timeout = timeout)
+            self.master = serial.Serial(port=portName, baudrate=self.baudrate, parity=self.parity, stopbits = 1,timeout = timeout)
             self.caches = {} 
             self.msg_err = ""
         except Exception as e:
