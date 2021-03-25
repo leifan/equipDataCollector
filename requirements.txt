@@ -18,7 +18,7 @@ PyQt5==5.14.2
 PyQt5-sip==12.7.2
 pyserial==3.4
 pywin32-ctypes==0.2.0
-PyYAML==5.3.1
+PyYAML==5.4
 requests==2.23.0
 shellescape==3.8.1
 six==1.15.0
