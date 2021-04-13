@@ -134,7 +134,7 @@ class Writer(Thread):
             sessionId = dat.get('sessionId')
             if sessionId:
                 self.web_cfg_info['sessionId'] = sessionId
-            logging.info('获取sessionId={}'.format(sessionId))
+            logging.debug('获取sessionId={}'.format(sessionId))
         except Exception as e:
             logging.warning(str(e), exc_info=True)
             self.web_cfg_info['sessionId'] = None
@@ -380,7 +380,7 @@ class Writer(Thread):
                     # 微差压 modbus地址公用，modbus地址表示通道地址
                     addrs[0] = e['equipType'] # equipType
                     addrs[1] = e['id']       # equipId
-                    # addrs[2] = e['modbusId'] # comaddr
+                    addrs[2] = 1 # comaddr 固定地址1
                     addrs[4] = e['modbusId'] + 1 # 开始地址 现场接线DAQM-4206A的通道1-通道4，设备地址1, 通道0-通道7对应寄存器地址1-8
                     #c[5] = e['frequency']*1000 # 采集频率
                     c[3].append(addrs[:])

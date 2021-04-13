@@ -78,12 +78,18 @@ class ModbusRtuCh(metaclass=MetaRegCls):
             elif equipType == gl.HT_EQUIP_TYPE_MICRO_PRESSURE: # 微差压传感器
                 r = self.master.execute(slaveId, cmd, addr, num)
                 # 电流范围 4-20ma 测量范围 -100-100pa  
-                # 数据转换公式 d/3900*(20-4)+4 3900对应20ma的值v
-                v = r[0] / 3900 * (20 - 4) + 4 # 计算对应电流
-                pressure = (v - 4) * 200 / 20 - 100
+                r0 = r[0]
+                if r0 < 819:
+                    r0 = 819 + r0
+                if r0 > 4096:
+                    r0 = 4096 
+                #v = (r0 - 819) * (20 - 4) / (4095 -819)  + 4 # 计算对应电流
+                v = (r0 - 819) * 16 / 3276  + 4 # 计算对应电流
+                #pressure = 100 * (v - 4) / 16
+                pressure = 6.25 * (v - 4)
                 rd = dict(comStatus = gl.COM_STATUS_NORMAL, value = pressure)
                 ret_dict.update(rd)
-                logging.debug('计算r={}数据:v={}，pressure={}'.format(r[0], v, pressure))
+                #logging.warning('{}-{}-{}计算r={}数据:v={}，pressure={}'.format(slaveId, addr, num, r[0], v, pressure))
 
         except Exception as e:
             dinfo = "[{},equipType={},equipId={},slaveId={},cmd={},addr={},num={}]".format(self.portName(), equipType, equipId, slaveId, cmd, addr, num)
